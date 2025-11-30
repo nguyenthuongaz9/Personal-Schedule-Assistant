@@ -1,0 +1,99 @@
+# docker-compose.yml
+# version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: mysqldb 
+    environment:
+      MYSQL_ROOT_PASSWORD: nguyenthuong01
+      MYSQL_DATABASE: personal_scheduler
+      MYSQL_USER: nguyenthuong
+      MYSQL_PASSWORD: nguyenthuong01
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/mysql/init-data.sql:/docker-entrypoint-initdb.d/init-data.sql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+    networks:
+      - scheduler_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+      
+  # Python Flask Backend
+  # backend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.backend
+  #   container_name: personal_scheduler_backend
+  #   environment:
+  #     - MYSQL_HOST=mysql
+  #     - MYSQL_USER=app_user
+  #     - MYSQL_PASSWORD=app_password
+  #     - MYSQL_DB=personal_scheduler
+  #     - MYSQL_PORT=3306
+  #     - OLLAMA_URL=http://ollama:11434/api/generate
+  #     - OLLAMA_MODEL=llama2
+  #   ports:
+  #     - "5000:5000"
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./backend:/app
+  #     - ./logs:/app/logs
+  #   networks:
+  #     - scheduler_network
+  #   restart: unless-stopped
+  #
+  # # Ollama AI Service
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama 
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - scheduler_network
+  #   environment:
+  #     - OLLAMA_MODEL=mistral
+  #   restart: unless-stopped
+
+  # # Next.js Frontend
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   container_name: personal_scheduler_frontend
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://localhost:5000
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - backend
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - scheduler_network
+  #   restart: unless-stopped
+  #
+volumes:
+  mysql_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  scheduler_network:
+    driver: bridge

@@ -1,0 +1,22 @@
+# Dockerfile.mysql
+FROM mysql:8.0
+
+# Set environment variables
+ENV MYSQL_ROOT_PASSWORD=nguyenthuong01
+ENV MYSQL_DATABASE=personal_scheduler
+ENV MYSQL_USER=nguyenthuong
+ENV MYSQL_PASSWORD=nguyenthuong01
+
+# Copy initialization scripts
+COPY ./docker/mysql/init.sql /docker-entrypoint-initdb.d/
+COPY ./docker/mysql/init-data.sql /docker-entrypoint-initdb.d/
+
+# Copy custom configuration
+COPY ./docker/mysql/my.cnf /etc/mysql/conf.d/my.cnf
+
+# Expose MySQL port
+EXPOSE 3306
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD} || exit 1

@@ -1,0 +1,81 @@
+
+# =========================================================
+# Python
+# =========================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# =========================================================
+# Flask
+# =========================================================
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# Flask cache
+.cache/
+**/__pycache__/
+
+# dotenv environment variables
+.env
+.env.*
+!.env.example  # keep template
+
+# =========================================================
+# IDE / Editors
+# =========================================================
+.vscode/
+.vscode/*
+.idea/
+*.iml
+
+# =========================================================
+# OS files
+# =========================================================
+.DS_Store
+Thumbs.db
+
+# =========================================================
+# Logs
+# =========================================================
+*.log
+logs/

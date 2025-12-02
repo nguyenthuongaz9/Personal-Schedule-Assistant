@@ -193,14 +193,6 @@ CREATE TABLE schedules (
     priority ENUM('low', 'medium', 'high')
 );
 
--- AI Interactions table
-CREATE TABLE ai_interactions (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT NOT NULL,
-    user_message TEXT NOT NULL,
-    ai_response TEXT NOT NULL,
-    intent VARCHAR(100)
-);
 🛠️ Development
 Project Structure
 text

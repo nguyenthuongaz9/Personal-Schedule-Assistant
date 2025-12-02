@@ -6,20 +6,20 @@ from models import ScheduleModel
 import requests
 import re
 
-
 logger = logging.getLogger(__name__)
 
 class PersonalAssistant:
-    def __init__(self, config, db_manager):
+    def __init__(self, config, db_manager, nlp_processor):
         self.config = config
         self.db = db_manager
+        self.nlp = nlp_processor
         self.schedule_model = ScheduleModel(db_manager)
         self.ollama_url = getattr(config, 'OLLAMA_URL', 'http://localhost:11434')
-        self.ollama_model = getattr(config, 'OLLAMA_MODEL', 'mistral')
+        self.ollama_model = getattr(config, 'OLLAMA_MODEL', 'deepseek-r1')
     
     def process_message(self, user_id: int, message: str) -> Dict[str, Any]:
        
-        logger.info(f"Processing message from user {user_id}: '{message}'")
+        logger.info(f"🎯 Processing message from user {user_id}: '{message}'")
         
         try:
         
@@ -29,7 +29,7 @@ class PersonalAssistant:
             if not ollama_response.get('success', True):
                 return ollama_response
             
-            logger.info(f"Ollama raw response: {json.dumps(ollama_response, indent=2, ensure_ascii=False)}")
+            logger.info(f"🔍 Ollama raw response: {json.dumps(ollama_response, indent=2, ensure_ascii=False)}")
             
             
             if ollama_response.get('is_schedule_related', False):
@@ -45,11 +45,11 @@ class PersonalAssistant:
                 }
             
      
-            logger.info(f"Final response: {response}")
+            logger.info(f"📤 Final response: {response}")
             return response
             
         except Exception as e:
-            logger.error(f"Critical error in process_message: {e}")
+            logger.error(f"❌ Critical error in process_message: {e}")
             return self._handle_critical_error(e, message)
     
     def _call_ollama_for_intent(self, message: str, user_id: int) -> Dict[str, Any]:
@@ -78,9 +78,9 @@ class PersonalAssistant:
                 }
             }
             
-            logger.info(f"Calling Ollama at: {url}")
-            logger.info(f"Using model: {self.ollama_model}")
-            logger.info(f"Setting timeout: 300 seconds (5 minutes)")
+            logger.info(f"🔗 Calling Ollama at: {url}")
+            logger.info(f"🤖 Using model: {self.ollama_model}")
+            logger.info(f"⏰ Setting timeout: 300 seconds (5 minutes)")
             
             
             response = requests.post(url, json=payload, timeout=300)
@@ -92,11 +92,11 @@ class PersonalAssistant:
             if not generated_text:
                 return {
                     'success': False,
-                    'message': 'Ollama trả về response trống',
+                    'message': '❌ Ollama trả về response trống',
                     'type': 'ollama_error'
                 }
             
-            logger.info(f"Ollama response received: {len(generated_text)} characters")
+            logger.info(f"✅ Ollama response received: {len(generated_text)} characters")
             
         
             return self._parse_ollama_response(generated_text, message)
@@ -105,28 +105,28 @@ class PersonalAssistant:
             logger.error(f"🔌 Cannot connect to Ollama: {e}")
             return {
                 'success': False,
-                'message': 'Không thể kết nối đến Ollama service. Vui lòng kiểm tra kết nối.',
+                'message': '❌ Không thể kết nối đến Ollama service. Vui lòng kiểm tra kết nối.',
                 'type': 'connection_error'
             }
         except requests.exceptions.Timeout as e:
-            logger.error(f" Ollama request timeout after 5 minutes: {e}")
+            logger.error(f"⏰ Ollama request timeout after 5 minutes: {e}")
             return {
                 'success': False,
-                'message': ' Ollama xử lý quá lâu (hơn 5 phút). Vui lòng thử lại với câu hỏi ngắn hơn.',
+                'message': '⏰ Ollama xử lý quá lâu (hơn 5 phút). Vui lòng thử lại với câu hỏi ngắn hơn.',
                 'type': 'timeout_error'
             }
         except requests.exceptions.HTTPError as e:
-            logger.error(f"Ollama HTTP error: {e}")
+            logger.error(f"🌐 Ollama HTTP error: {e}")
             return {
                 'success': False,
-                'message': f'Lỗi kết nối đến Ollama: {e}',
+                'message': f'❌ Lỗi kết nối đến Ollama: {e}',
                 'type': 'http_error'
             }
         except Exception as e:
-            logger.error(f"Error calling Ollama for intent: {e}")
+            logger.error(f"❌ Error calling Ollama for intent: {e}")
             return {
                 'success': False,
-                'message': f'Lỗi khi xử lý yêu cầu: {str(e)}',
+                'message': f'❌ Lỗi khi xử lý yêu cầu: {str(e)}',
                 'type': 'unknown_error'
             }
     
@@ -184,7 +184,7 @@ class PersonalAssistant:
             return context_schedules
             
         except Exception as e:
-            logger.error(f"Error getting schedules context: {e}")
+            logger.error(f"❌ Error getting schedules context: {e}")
             return [] 
     
     def _create_intent_analysis_prompt(self, message: str, user_id: int, existing_schedules: List[Dict]) -> str:
@@ -279,7 +279,7 @@ Kết quả JSON:"""
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group()
-                logger.info(f"Found JSON: {json_str}")
+                logger.info(f"🔍 Found JSON: {json_str}")
                 
                 parsed_data = json.loads(json_str)
                 
@@ -289,28 +289,28 @@ Kết quả JSON:"""
                 return validated_data
             else:
                 
-                logger.error(f"No JSON found in Ollama response: {response_text}")
+                logger.error(f"❌ No JSON found in Ollama response: {response_text}")
                 return {
                     'success': False,
-                    'message': 'Ollama trả về định dạng không hợp lệ',
+                    'message': '❌ Ollama trả về định dạng không hợp lệ',
                     'type': 'format_error',
                     'raw_response': response_text[:500]  
                 }
                 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error: {e}")
+            logger.error(f"❌ JSON parse error: {e}")
             logger.error(f"📝 Problematic JSON: {response_text}")
             return {
                 'success': False,
-                'message': 'Lỗi phân tích response từ Ollama',
+                'message': '❌ Lỗi phân tích response từ Ollama',
                 'type': 'parse_error',
                 'raw_response': response_text[:500]
             }
         except Exception as e:
-            logger.error(f"Error parsing Ollama response: {e}")
+            logger.error(f"❌ Error parsing Ollama response: {e}")
             return {
                 'success': False,
-                'message': f'Lỗi xử lý response: {str(e)}',
+                'message': f'❌ Lỗi xử lý response: {str(e)}',
                 'type': 'parse_error'
             }
     
@@ -407,11 +407,11 @@ Kết quả JSON:"""
             elif intent == 'delete':
                 return self._handle_schedule_deletion(user_id, ollama_data)
             else:
-                logger.error(f"Unknown schedule intent: {intent}")
+                logger.error(f"❌ Unknown schedule intent: {intent}")
                 return self._create_error_response('Không hiểu yêu cầu về lịch trình')
                 
         except Exception as e:
-            logger.error(f"Error handling schedule intent: {e}")
+            logger.error(f"❌ Error handling schedule intent: {e}")
             return self._create_error_response('Có lỗi khi xử lý lịch trình')
     
     def _handle_schedule_creation(self, user_id: int, ollama_data: Dict) -> Dict[str, Any]:
@@ -442,7 +442,7 @@ Kết quả JSON:"""
             return self._create_schedule_success_response(prepared_data, schedule_id)
             
         except Exception as e:
-            logger.error(f"Error creating schedule: {e}")
+            logger.error(f"❌ Error creating schedule: {e}")
             return self._create_error_response('Có lỗi khi tạo lịch trình')
     
     def _prepare_schedule_data(self, schedule_data: Dict) -> Dict[str, Any]:
@@ -478,22 +478,23 @@ Kết quả JSON:"""
         title = schedule_data['title']
         
         if schedule_data['category'] == 'alarm':
-            message = f" Đã đặt báo thức '{title}' vào lúc {formatted_time}"
-          
+            message = f"⏰ Đã đặt báo thức '{title}' vào lúc {formatted_time}"
+            emoji = "⏰"
         else:
-            message = f" Đã tạo lịch '{title}' vào lúc {formatted_time}"
-          
+            message = f"✅ Đã tạo lịch '{title}' vào lúc {formatted_time}"
+            emoji = "✅"
         
         if schedule_data.get('description'):
-            message += f"\nGhi chú: {schedule_data['description']}"
+            message += f"\n📝 Ghi chú: {schedule_data['description']}"
         
-        message += f"\nID: {schedule_id}"
+        message += f"\n🆔 ID: {schedule_id}"
         
         return {
             'success': True,
             'message': message,
             'schedule_id': schedule_id,
             'type': 'schedule_created',
+            'emoji': emoji,
             'created_schedule': {
                 'id': schedule_id,
                 'title': title,
@@ -519,7 +520,7 @@ Kết quả JSON:"""
                 return self._create_empty_schedule_response(query_scope)
                 
         except Exception as e:
-            logger.error(f"Error querying schedules: {e}")
+            logger.error(f"❌ Error querying schedules: {e}")
             return self._create_error_response('Có lỗi khi truy vấn lịch trình')
     
     def _calculate_target_date(self, query_scope: str) -> Optional[str]:
@@ -553,12 +554,12 @@ Kết quả JSON:"""
         }
         
         scope_text = scope_messages.get(query_scope, '')
-        message = f"Tìm thấy {len(schedules)} lịch trình {scope_text}:"
+        message = f"📅 Tìm thấy {len(schedules)} lịch trình {scope_text}:"
         
         for i, s in enumerate(schedule_list, 1):
             message += f"\n{i}. **{s['title']}** - {s['start_time']} (ID: {s['id']})"
         
-        message += f"\n\nBạn có thể sử dụng ID để xóa hoặc sửa lịch trình cụ thể."
+        message += f"\n\n💡 Bạn có thể sử dụng ID để xóa hoặc sửa lịch trình cụ thể."
         
         return {
             'success': True,
@@ -628,7 +629,7 @@ Kết quả JSON:"""
         }
         
         scope_text = scope_messages.get(query_scope, '')
-        message = f" Không có lịch trình nào {scope_text}"
+        message = f"📅 Không có lịch trình nào {scope_text}"
         
         return {
             'success': True,
@@ -661,7 +662,7 @@ Kết quả JSON:"""
             if success:
                 return {
                     'success': True,
-                    'message': f' Đã sửa lịch trình ID {schedule_id} thành "{new_title}"',
+                    'message': f'✅ Đã sửa lịch trình ID {schedule_id} thành "{new_title}"',
                     'schedule_id': schedule_id,
                     'type': 'schedule_updated'
                 }
@@ -669,7 +670,7 @@ Kết quả JSON:"""
                 return self._create_error_response('Không thể cập nhật lịch trình')
                 
         except Exception as e:
-            logger.error(f"Error updating schedule: {e}")
+            logger.error(f"❌ Error updating schedule: {e}")
             return self._create_error_response('Có lỗi khi sửa lịch trình')
     
     def _handle_schedule_deletion(self, user_id: int, ollama_data: Dict) -> Dict[str, Any]:
@@ -687,7 +688,7 @@ Kết quả JSON:"""
                 if success:
                     return {
                         'success': True,
-                        'message': f' Đã xóa lịch trình ID {schedule_id}',
+                        'message': f'✅ Đã xóa lịch trình ID {schedule_id}',
                         'schedule_id': schedule_id,
                         'type': 'schedule_deleted'
                     }
@@ -712,7 +713,7 @@ Kết quả JSON:"""
                     if success:
                         return {
                             'success': True,
-                            'message': f' Đã xóa lịch trình "{self._get_schedule_title(schedule_to_delete)}"',
+                            'message': f'✅ Đã xóa lịch trình "{self._get_schedule_title(schedule_to_delete)}"',
                             'schedule_id': schedule_id_to_delete,
                             'type': 'schedule_deleted'
                         }
@@ -725,7 +726,7 @@ Kết quả JSON:"""
                 return self._create_error_response('Vui lòng cung cấp ID hoặc tên lịch trình cần xóa')
                 
         except Exception as e:
-            logger.error(f"Error deleting schedule: {e}")
+            logger.error(f"❌ Error deleting schedule: {e}")
             return self._create_error_response('Có lỗi khi xóa lịch trình')
     
     def _get_schedule_id(self, schedule) -> Optional[int]:
@@ -767,11 +768,11 @@ Kết quả JSON:"""
         
         schedule_list.sort(key=lambda x: x['id'])
         
-        message = f"Tìm thấy {len(schedules)} lịch trình phù hợp:\n\n"
+        message = f"🔍 Tìm thấy {len(schedules)} lịch trình phù hợp:\n\n"
         for i, s in enumerate(schedule_list, 1):
             message += f"{i}. ID {s['id']}: {s['title']} - {s['start_time']}\n"
         
-        message += f"\nHãy nói '{action} lịch trình [ID]' để chọn."
+        message += f"\n💡 Hãy nói '{action} lịch trình [ID]' để chọn."
         
         return {
             'success': False,
@@ -809,11 +810,11 @@ Kết quả JSON:"""
     
     def _handle_critical_error(self, error: Exception, message: str) -> Dict[str, Any]:
        
-        logger.error(f"Critical error processing message '{message}': {error}")
+        logger.error(f"🚨 Critical error processing message '{message}': {error}")
         
         return {
             'success': False,
-            'message': 'Đã có lỗi xảy ra. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.',
+            'message': '😵 Đã có lỗi xảy ra. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.',
             'type': 'critical_error'
         }
     
@@ -832,7 +833,7 @@ Kết quả JSON:"""
             result = self.db.execute_query(query, (user_id,), fetch=True)
             return len(result) > 0
         except Exception as e:
-            logger.error(f"Error checking user: {e}")
+            logger.error(f"❌ Error checking user: {e}")
             return False
     
     

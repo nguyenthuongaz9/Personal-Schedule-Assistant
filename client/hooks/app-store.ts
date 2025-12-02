@@ -1,13 +1,18 @@
 import { create } from 'zustand';
-import { AppState, Schedule, ChatMessage, ViewType } from '@/types';
+import { Schedule, ChatMessage, ViewType } from '@/types';
+import { apiClient } from '@/lib/axios-client';
+
+interface AppState {
+  chatHistory: ChatMessage[];
+  schedules: Schedule[];
+  isLoading: boolean;
+  activeView: ViewType;
+  selectedDate: string;
+  
+}
 
 interface AppStore extends AppState {
-  // Actions
   setLoading: (loading: boolean) => void;
-  setSchedules: (schedules: Schedule[]) => void;
-  addSchedule: (schedule: Schedule) => void;
-  updateSchedule: (id: number, updates: Partial<Schedule>) => void;
-  deleteSchedule: (id: number) => void;
   addChatMessage: (message: ChatMessage) => void;
   setActiveView: (view: ViewType) => void;
   setSelectedDate: (date: string) => void;
@@ -15,46 +20,31 @@ interface AppStore extends AppState {
   goToNextMonth: () => void;
   goToPrevMonth: () => void;
   goToToday: () => void;
+  loadMonthSchedules: (monthStart: string, monthEnd:string) => void;
+  fetchSchedulesByDate: (date: string) => Promise<void>;
 }
 
 const initialState: Omit<AppState, 'user'> = {
-  schedules: [],
   chatHistory: [],
+  schedules: [],
   isLoading: false,
   activeView: 'chat',
   selectedDate: new Date().toISOString().split('T')[0],
 };
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  user: {
-    id: 1,
-    username: 'demo_user',
-    email: 'demo@example.com',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
+  
   ...initialState,
+
+  
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  setSchedules: (schedules) => set({ schedules }),
+ 
 
-  addSchedule: (schedule) => 
-    set((state) => ({ 
-      schedules: [...state.schedules, schedule] 
-    })),
+  
 
-  updateSchedule: (id, updates) =>
-    set((state) => ({
-      schedules: state.schedules.map(schedule =>
-        schedule.id === id ? { ...schedule, ...updates } : schedule
-      ),
-    })),
-
-  deleteSchedule: (id) =>
-    set((state) => ({
-      schedules: state.schedules.filter(schedule => schedule.id !== id),
-    })),
+  
 
   addChatMessage: (message) =>
     set((state) => ({
@@ -66,11 +56,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSelectedDate: (date) => set({ selectedDate: date }),
 
   clearChatHistory: () => set({ chatHistory: [] }),
+  
   goToNextMonth: () => {
-      const currentMonth = new Date(get().selectedDate);
-      currentMonth.setMonth(currentMonth.getMonth() + 1);
-      set({ selectedDate: currentMonth.toISOString().split('T')[0] });
-    },
+    const currentMonth = new Date(get().selectedDate);
+    currentMonth.setMonth(currentMonth.getMonth() + 1);
+    set({ selectedDate: currentMonth.toISOString().split('T')[0] });
+  },
     
   goToPrevMonth: () => {
     const currentMonth = new Date(get().selectedDate);
@@ -81,4 +72,43 @@ export const useAppStore = create<AppStore>((set, get) => ({
   goToToday: () => {
     set({ selectedDate: new Date().toISOString().split('T')[0] });
   },
+  
+
+  fetchSchedulesByDate: async (date: string) => {
+    try {
+      set({ isLoading: true });
+      const result = await apiClient.getSchedules(date);
+      
+      if (result.success && result.data) {
+        const existingSchedules = get().schedules.filter(s => {
+          const scheduleDate = new Date(s.start_time).toISOString().split('T')[0];
+          return scheduleDate !== date;
+        });
+        
+        const newSchedules = result.data;
+        set({ schedules: [...existingSchedules, ...newSchedules] });
+      }
+    } catch (error) {
+      console.error('Error fetching schedules:', error);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  loadMonthSchedules: async (monthStart: string, monthEnd: string) => {
+  try {
+    set({ isLoading: true });
+    const result = await apiClient.getSchedulesInRange(monthStart, monthEnd);
+    
+    console.log("result in store", result)
+    if (result.success && result.data) {
+      return result.data;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error loading month schedules:', error);
+    return [];
+  } finally {
+    set({ isLoading: false });
+  }
+},
 }));

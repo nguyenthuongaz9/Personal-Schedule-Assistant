@@ -15,28 +15,30 @@ export const ChatInterface: React.FC = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [isLongRequest, setIsLongRequest] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  const { chatHistory, addChatMessage, setSchedules } = useAppStore();
+  const { chatHistory, addChatMessage, } = useAppStore();
   const { sendMessage, isLoading } = useChat();
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
     scrollToBottom();
   }, [chatHistory]);
 
-  // Hiển thị cảnh báo cho request dài
   useEffect(() => {
     if (isLoading) {
       const timer = setTimeout(() => {
         setIsLongRequest(true);
         toast.loading('Request đang mất nhiều thời gian. Vui lòng chờ...', {
-          duration: 10000, // 10 giây
+          duration: 10000,
           id: 'long-request-warning'
         });
-      }, 30000); // Sau 30 giây
+      }, 30000); 
 
       return () => {
         clearTimeout(timer);
@@ -75,12 +77,9 @@ export const ChatInterface: React.FC = () => {
 
       addChatMessage(aiMessage);
 
-      if (response.schedules) {
-        setSchedules(response.schedules);
-      }
-
-      if (response.success && response.type === 'schedule_created') {
-        toast.success(response.message);
+      
+      if (response.success && response?.type === 'schedule_created') {
+        toast.success(response?.message);
       }
 
     } catch (error) {
@@ -97,13 +96,16 @@ export const ChatInterface: React.FC = () => {
 
   const handleSuggestedMessageClick = (message: string) => {
     setInputMessage(message);
+    setTimeout(() => {
+      const input = document.querySelector('input[placeholder*="Nhập tin nhắn"]') as HTMLInputElement;
+      input?.focus();
+    }, 100);
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col">
-      {/* Warning for long requests */}
+    <div className="h-[calc(100vh-80px)] flex flex-col">
       {isLongRequest && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mx-4 mt-4 flex items-center space-x-2">
+        <div className="flex-shrink-0 bg-yellow-50 border border-yellow-200 rounded-lg p-3 mx-4 mt-4 flex items-center space-x-2">
           <AlertTriangle className="h-4 w-4 text-yellow-600" />
           <span className="text-sm text-yellow-700">
             Request đang mất nhiều thời gian. Đây là bình thường với AI model lớn.
@@ -111,9 +113,8 @@ export const ChatInterface: React.FC = () => {
         </div>
       )}
 
-      {/* Processing info */}
       {isLoading && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mx-4 mt-2 flex items-center space-x-2">
+        <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg p-3 mx-4 mt-2 flex items-center space-x-2">
           <Clock className="h-4 w-4 text-blue-600" />
           <span className="text-sm text-blue-700">
             Đang xử lý... Có thể mất đến 5 phút
@@ -121,24 +122,30 @@ export const ChatInterface: React.FC = () => {
         </div>
       )}
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {chatHistory.length === 0 ? (
-          <div className="text-center py-12">
-            <SuggestedMessages onMessageClick={handleSuggestedMessageClick} />
-          </div>
-        ) : (
-          chatHistory.map((message) => (
-            <Message key={message.id} message={message} />
-          ))
-        )}
-        
-        {isLoading && <TypingIndicator />}
-        <div ref={messagesEndRef} />
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4"
+      >
+        <div className="space-y-4 min-h-full">
+          {chatHistory.length === 0 ? (
+            <div className="flex items-center justify-center h-full min-h-[400px]">
+              <div className="text-center">
+                <SuggestedMessages onMessageClick={handleSuggestedMessageClick} />
+              </div>
+            </div>
+          ) : (
+            <>
+              {chatHistory.map((message) => (
+                <Message key={message.id} message={message} />
+              ))}
+              {isLoading && <TypingIndicator />}
+            </>
+          )}
+          <div ref={messagesEndRef} className="h-4" />
+        </div>
       </div>
 
-      {/* Chat Input */}
-      <div className="border-t border-gray-200 p-4 bg-white">
+      <div className="flex-shrink-0 border-t border-gray-200 p-4 bg-white">
         <form onSubmit={handleSendMessage} className="flex space-x-4">
           <div className="flex-1">
             <Input
@@ -167,11 +174,6 @@ export const ChatInterface: React.FC = () => {
             <span>{isLoading ? 'Đợi...' : 'Gửi'}</span>
           </Button>
         </form>
-        
-        {/* Additional info */}
-        <div className="mt-2 text-xs text-gray-500 text-center">
-          <p>💡 Mẹo: Sử dụng câu ngắn gọn để xử lý nhanh hơn</p>
-        </div>
       </div>
     </div>
   );

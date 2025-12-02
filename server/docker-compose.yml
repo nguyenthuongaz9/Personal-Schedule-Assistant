@@ -56,19 +56,16 @@ services:
   #   restart: unless-stopped
   #
   # # Ollama AI Service
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: ollama 
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   networks:
-  #     - scheduler_network
-  #   environment:
-  #     - OLLAMA_MODEL=mistral
-  #   restart: unless-stopped
-
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama 
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - scheduler_network
+    restart: unless-stopped
   # # Next.js Frontend
   # frontend:
   #   build:

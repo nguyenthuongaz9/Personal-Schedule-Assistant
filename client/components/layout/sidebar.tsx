@@ -28,7 +28,7 @@ export const Sidebar: React.FC = () => {
                   onClick={() => setActiveView(item.id)}
                   className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-primary-50 text-primary-700 border-r-2 border-primary-600'
+                      ? 'bg-primary-50 text-primary-700 border border-primary-600 shadow-2xl'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`}
                 >

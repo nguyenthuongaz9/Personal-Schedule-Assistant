@@ -1,12 +1,17 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
   Plus,
   Clock,
-  MapPin
+  MapPin,
+  Calendar as CalendarIcon,
+  Edit,
+  Trash2,
+  Loader2,
+  X
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, 
          isSameMonth, isSameDay, isToday, parseISO, 
@@ -16,16 +21,151 @@ import { Schedule } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useAppStore } from '@/hooks/app-store';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Badge } from '@/components/ui/badge';
+import { apiClient } from '@/lib/axios-client';
+import toast from 'react-hot-toast';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+const scheduleFormSchema = z.object({
+  title: z.string().min(1, "Tiêu đề là bắt buộc"),
+  description: z.string().optional(),
+  start_time: z.string().min(1, "Thời gian bắt đầu là bắt buộc"),
+  end_time: z.string().min(1, "Thời gian kết thúc là bắt buộc"),
+  priority: z.enum(["low", "medium", "high"]).default("medium"),
+  category: z.string().optional(),
+});
+
+type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export const CalendarView: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const { schedules, setSelectedDate, selectedDate } = useAppStore();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMonth, setIsLoadingMonth] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isDateDialogOpen, setIsDateDialogOpen] = useState(false);
+  const [selectedDaySchedules, setSelectedDaySchedules] = useState<Schedule[]>([]);
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [monthSchedules, setMonthSchedules] = useState<Schedule[]>([]);
+  
+  const { 
+    schedules, 
+    selectedDate, 
+    setSelectedDate,
+    setSchedules,
+    addSchedule,
+    updateSchedule,
+    removeSchedule,
+  } = useAppStore();
 
+  const form = useForm<ScheduleFormValues>({
+    resolver: zodResolver(scheduleFormSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      start_time: "",
+      end_time: "",
+      priority: "medium",
+      category: "",
+    },
+  });
+
+  // Set selectedDate mặc định khi component mount
+  useEffect(() => {
+    if (!selectedDate) {
+      const today = new Date();
+      const todayStr = format(today, 'yyyy-MM-dd');
+      setSelectedDate(todayStr);
+    }
+  }, [selectedDate, setSelectedDate]);
+
+  // Reset form khi dialog đóng
+  useEffect(() => {
+    if (!isCreateDialogOpen && !isEditDialogOpen) {
+      form.reset();
+      setEditingSchedule(null);
+    }
+  }, [isCreateDialogOpen, isEditDialogOpen, form]);
+
+  // Load schedules cho cả tháng khi currentMonth thay đổi
+  useEffect(() => {
+    const loadMonthData = async () => {
+      setIsLoadingMonth(true);
+      try {
+        const monthStart = startOfMonth(currentMonth);
+        const monthEnd = endOfMonth(currentMonth);
+        
+        const startDateStr = format(monthStart, 'yyyy-MM-dd');
+        const endDateStr = format(monthEnd, 'yyyy-MM-dd');
+        
+        console.log(`Loading schedules from ${startDateStr} to ${endDateStr}`);
+        
+        const response = await apiClient.getSchedulesInRange(startDateStr, endDateStr);
+        
+        console.log('API Range Response:', response);
+        
+        if (response?.data?.success) {
+          const schedules = response.data.schedules;
+          
+          if (schedules && Array.isArray(schedules)) {
+            setMonthSchedules(schedules);
+            console.log(`Loaded ${schedules.length} schedules for month`);
+          } else {
+            console.warn('No schedule data found in response');
+            setMonthSchedules([]);
+          }
+        } else {
+          console.warn('API request was not successful or no data');
+          setMonthSchedules([]);
+        }
+      } catch (error) {
+        console.error('Error loading month schedules:', error);
+        toast.error('Không thể tải lịch trình cho tháng');
+        setMonthSchedules([]);
+      } finally {
+        setIsLoadingMonth(false);
+      }
+    };
+
+    loadMonthData();
+  }, [currentMonth]);
+
+  // Tính toán các ngày trong tháng
   const days = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 }); // Monday
-    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 }); // Monday
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
     
     return eachDayOfInterval({
       start: calendarStart,
@@ -33,19 +173,30 @@ export const CalendarView: React.FC = () => {
     });
   }, [currentMonth]);
 
-  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
-  const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
-
-  const getSchedulesForDate = (date: Date): Schedule[] => {
-    return schedules.filter(schedule => {
-      const scheduleDate = new Date(schedule.start_time);
-      return isSameDay(scheduleDate, date);
+  // Lấy schedules cho ngày cụ thể từ monthSchedules
+  const getSchedulesForDate = useCallback((date: Date): Schedule[] => {
+    if (!monthSchedules || !Array.isArray(monthSchedules)) return [];
+    
+    return monthSchedules.filter(schedule => {
+      if (!schedule || !schedule.start_time) return false;
+      
+      try {
+        const scheduleDate = new Date(schedule.start_time);
+        return isSameDay(scheduleDate, date);
+      } catch (error) {
+        console.error('Error parsing schedule date:', error);
+        return false;
+      }
     });
+  }, [monthSchedules]);
+
+  const nextMonth = () => {
+    setCurrentMonth(addMonths(currentMonth, 1));
   };
 
-  const getSchedulesForSelectedDate = useMemo(() => {
-    return getSchedulesForDate(new Date(selectedDate));
-  }, [schedules, selectedDate]);
+  const prevMonth = () => {
+    setCurrentMonth(subMonths(currentMonth, 1));
+  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -60,33 +211,394 @@ export const CalendarView: React.FC = () => {
     }
   };
 
+  const getPriorityBadgeVariant = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return 'destructive';
+      case 'medium':
+        return 'warning';
+      case 'low':
+        return 'success';
+      default:
+        return 'default';
+    }
+  };
+
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'success';
+      case 'cancelled':
+        return 'destructive';
+      case 'in_progress':
+        return 'warning';
+      case 'scheduled':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'Chờ xử lý';
+      case 'scheduled':
+        return 'Đã lên lịch';
+      case 'in_progress':
+        return 'Đang thực hiện';
+      case 'completed':
+        return 'Hoàn thành';
+      case 'cancelled':
+        return 'Đã hủy';
+      default:
+        return status;
+    }
+  };
+
   const formatTime = (dateTimeString: string) => {
-    return format(parseISO(dateTimeString), 'HH:mm');
+    try {
+      const date = parseISO(dateTimeString);
+      return format(date, 'HH:mm');
+    } catch (error) {
+      try {
+        const date = new Date(dateTimeString);
+        return format(date, 'HH:mm');
+      } catch (e) {
+        console.error('Error formatting time:', e);
+        return '--:--';
+      }
+    }
+  };
+
+  const formatDateDisplay = (date: Date) => {
+    try {
+      return format(date, 'dd/MM/yyyy');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
+  const formatDateTitle = (date: Date) => {
+    try {
+      return format(date, 'EEEE, dd/MM/yyyy', { locale: vi });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
+  // Hàm chuyển đổi date sang MySQL DATETIME format
+  const toMySQLDateTime = (date: Date): string => {
+    return format(date, 'yyyy-MM-dd HH:mm:ss');
+  };
+
+  const handleDateClick = (date: Date) => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    setSelectedDate(dateStr);
+    
+    // Lấy schedules cho ngày được click
+    const daySchedules = getSchedulesForDate(date);
+    setSelectedDaySchedules(daySchedules);
+    setSelectedDay(date);
+    
+    // Mở dialog hiển thị schedules
+    setIsDateDialogOpen(true);
+    
+    // Nếu ngày được click không nằm trong currentMonth, cập nhật currentMonth
+    if (!isSameMonth(date, currentMonth)) {
+      setCurrentMonth(date);
+    }
+  };
+
+  const handleCreateSchedule = async (data: ScheduleFormValues) => {
+    try {
+      setIsCreating(true);
+      
+      if (!selectedDay) {
+        toast.error('Vui lòng chọn ngày');
+        return;
+      }
+      
+      // Format date to MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
+      const selectedDateStr = format(selectedDay, 'yyyy-MM-dd');
+      const startDateTime = new Date(`${selectedDateStr}T${data.start_time}`);
+      const endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
+      
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        toast.error('Thời gian không hợp lệ');
+        return;
+      }
+      
+      // Tạo scheduleData theo đúng format MySQL DATETIME
+      const scheduleData = {
+        title: data.title,
+        description: data.description || '',
+        start_time: toMySQLDateTime(startDateTime), // MySQL format
+        end_time: toMySQLDateTime(endDateTime),     // MySQL format
+        priority: data.priority,
+        category: data.category || 'general'
+      };
+      
+      console.log('Creating schedule with data:', scheduleData);
+      
+      const response = await apiClient.createSchedule(scheduleData);
+      
+      console.log('Create schedule response:', response);
+      
+      if (response?.data?.success) {
+        // Nếu response.data có schedule data
+        const newScheduleData = response.data.data || response.data.schedule;
+        
+        const newSchedule: Schedule = {
+          title: data.title,
+          description: data.description || '',
+          start_time: startDateTime.toISOString(), // Lưu trong state là ISO string
+          end_time: endDateTime.toISOString(),     // Lưu trong state là ISO string
+          priority: data.priority,
+          category: data.category || 'general',
+          id: newScheduleData?.id || Date.now(),
+          user_id: 1,
+          status: newScheduleData?.status || 'scheduled',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        addSchedule(newSchedule);
+        
+        // Cập nhật monthSchedules
+        setMonthSchedules(prev => [...prev, newSchedule]);
+        
+        // Cập nhật selectedDaySchedules
+        setSelectedDaySchedules(prev => [...prev, newSchedule]);
+        
+        toast.success('Tạo lịch trình thành công');
+        setIsCreateDialogOpen(false);
+        form.reset();
+        
+        // Reload month data
+        await reloadMonthData();
+      } else {
+        toast.error(response?.data?.message || 'Không thể tạo lịch trình');
+      }
+    } catch (error: any) {
+      console.error('Error creating schedule:', error);
+      toast.error(error.message || 'Có lỗi xảy ra khi tạo lịch trình');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleEditSchedule = async (data: ScheduleFormValues) => {
+    if (!editingSchedule || !selectedDay) return;
+    
+    try {
+      setIsCreating(true);
+      
+      // Format date to MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
+      const selectedDateStr = format(selectedDay, 'yyyy-MM-dd');
+      const startDateTime = new Date(`${selectedDateStr}T${data.start_time}`);
+      const endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
+      
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        toast.error('Thời gian không hợp lệ');
+        return;
+      }
+      
+      // Tạo scheduleData theo đúng format MySQL DATETIME
+      const scheduleData = {
+        title: data.title,
+        description: data.description || '',
+        start_time: toMySQLDateTime(startDateTime), // MySQL format
+        end_time: toMySQLDateTime(endDateTime),     // MySQL format
+        priority: data.priority,
+        category: data.category || 'general'
+      };
+      
+      console.log('Updating schedule with data:', scheduleData);
+      
+      const response = await apiClient.updateSchedule(editingSchedule.id, scheduleData);
+      
+      console.log('Update schedule response:', response);
+      
+      if (response?.data?.success) {
+        const updatedSchedule: Schedule = {
+          ...editingSchedule,
+          title: data.title,
+          description: data.description || '',
+          start_time: startDateTime.toISOString(), // Lưu trong state là ISO string
+          end_time: endDateTime.toISOString(),     // Lưu trong state là ISO string
+          priority: data.priority,
+          category: data.category || 'general',
+          updated_at: new Date().toISOString(),
+        };
+        
+        updateSchedule(updatedSchedule);
+        
+        // Cập nhật monthSchedules
+        setMonthSchedules(prev => 
+          prev.map(s => s.id === updatedSchedule.id ? updatedSchedule : s)
+        );
+        
+        // Cập nhật selectedDaySchedules
+        setSelectedDaySchedules(prev => 
+          prev.map(s => s.id === updatedSchedule.id ? updatedSchedule : s)
+        );
+        
+        toast.success('Cập nhật lịch trình thành công');
+        setIsEditDialogOpen(false);
+        setEditingSchedule(null);
+        form.reset();
+        
+        // Reload month data
+        await reloadMonthData();
+      } else {
+        toast.error(response?.data?.message || 'Không thể cập nhật lịch trình');
+      }
+    } catch (error: any) {
+      console.error('Error updating schedule:', error);
+      toast.error(error.message || 'Có lỗi xảy ra khi cập nhật lịch trình');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (scheduleId: number) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa lịch trình này?')) return;
+    
+    try {
+      const response = await apiClient.deleteSchedule(scheduleId);
+      
+      if (response?.data?.success) {
+        removeSchedule(scheduleId);
+        
+        // Cập nhật monthSchedules
+        setMonthSchedules(prev => prev.filter(s => s.id !== scheduleId));
+        
+        // Cập nhật selectedDaySchedules
+        setSelectedDaySchedules(prev => prev.filter(s => s.id !== scheduleId));
+        
+        toast.success('Đã xóa lịch trình');
+        
+        // Reload month data
+        await reloadMonthData();
+      } else {
+        toast.error(response?.data?.message || 'Không thể xóa lịch trình');
+      }
+    } catch (error: any) {
+      console.error('Error deleting schedule:', error);
+      toast.error(error.message || 'Có lỗi xảy ra khi xóa lịch trình');
+    }
+  };
+
+  const handleEditClick = (schedule: Schedule) => {
+    setEditingSchedule(schedule);
+    
+    // Extract time from datetime strings
+    const startTime = formatTime(schedule.start_time);
+    const endTime = formatTime(schedule.end_time);
+    
+    form.reset({
+      title: schedule.title,
+      description: schedule.description || '',
+      start_time: startTime,
+      end_time: endTime,
+      priority: schedule.priority,
+      category: schedule.category || '',
+    });
+    
+    setIsEditDialogOpen(true);
+    setIsDateDialogOpen(false);
+  };
+
+  const reloadMonthData = async () => {
+    setIsLoadingMonth(true);
+    try {
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd = endOfMonth(currentMonth);
+      
+      const startDateStr = format(monthStart, 'yyyy-MM-dd');
+      const endDateStr = format(monthEnd, 'yyyy-MM-dd');
+      
+      const response = await apiClient.getSchedulesInRange(startDateStr, endDateStr);
+      
+      if (response?.data?.success) {
+        const schedules = response.data.schedules;
+        
+        if (schedules && Array.isArray(schedules)) {
+          setMonthSchedules(schedules);
+          
+          // Cập nhật selectedDaySchedules nếu có selectedDay
+          if (selectedDay) {
+            const updatedDaySchedules = schedules.filter(schedule => {
+              if (!schedule || !schedule.start_time) return false;
+              
+              try {
+                const scheduleDate = new Date(schedule.start_time);
+                return isSameDay(scheduleDate, selectedDay);
+              } catch (error) {
+                return false;
+              }
+            });
+            setSelectedDaySchedules(updatedDaySchedules);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error reloading month data:', error);
+    } finally {
+      setIsLoadingMonth(false);
+    }
+  };
+
+  const handleCreateScheduleFromDateDialog = () => {
+    setIsDateDialogOpen(false);
+    setIsCreateDialogOpen(true);
   };
 
   const weekDays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const showCalendarLoading = isLoadingMonth;
 
   return (
-    <div className="h-full flex flex-col space-y-6">
+    <div className="h-full flex flex-col">
       {/* Calendar Header */}
-      <Card>
-        <CardHeader>
+      <Card className="mb-4">
+        <CardHeader className="pb-3 px-4 pt-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {format(currentMonth, 'MMMM yyyy', { locale: vi })}
-            </h2>
+            <div className="flex items-center space-x-3">
+              <CalendarIcon className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {format(currentMonth, 'MMMM yyyy', { locale: vi })}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Lịch cá nhân
+                </p>
+              </div>
+            </div>
             <div className="flex items-center space-x-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={prevMonth}
+                disabled={showCalendarLoading}
+                className="h-8 w-8 p-0"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentMonth(new Date())}
+                onClick={() => {
+                  const today = new Date();
+                  setCurrentMonth(today);
+                  const todayStr = format(today, 'yyyy-MM-dd');
+                  setSelectedDate(todayStr);
+                  handleDateClick(today);
+                }}
+                disabled={showCalendarLoading}
+                className="h-8 px-3 text-xs"
               >
                 Hôm nay
               </Button>
@@ -94,6 +606,8 @@ export const CalendarView: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={nextMonth}
+                disabled={showCalendarLoading}
+                className="h-8 w-8 p-0"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -101,13 +615,20 @@ export const CalendarView: React.FC = () => {
           </div>
         </CardHeader>
         
-        <CardContent>
+        <CardContent className="px-4 pb-4">
+          {showCalendarLoading && (
+            <div className="flex items-center justify-center py-2 mb-2">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <span className="text-xs text-gray-500">Đang tải lịch trình tháng...</span>
+            </div>
+          )}
+          
           {/* Week Days Header */}
           <div className="grid grid-cols-7 gap-1 mb-2">
-            {weekDays.map((day) => (
+            {weekDays.map((day, index) => (
               <div
-                key={day}
-                className="text-center text-sm font-medium text-gray-500 py-2"
+                key={`weekday-${day}-${index}`}
+                className="text-center text-xs font-medium text-gray-500 py-1.5"
               >
                 {day}
               </div>
@@ -116,58 +637,64 @@ export const CalendarView: React.FC = () => {
 
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1">
-            {days.map((day) => {
+            {days.map((day, index) => {
               const daySchedules = getSchedulesForDate(day);
               const isCurrentMonth = isSameMonth(day, currentMonth);
-              const isSelected = isSameDay(day, new Date(selectedDate));
+              const isSelected = selectedDay && isSameDay(day, selectedDay);
               const isTodayDate = isToday(day);
 
               return (
                 <div
-                  key={day.toISOString()}
+                  key={`day-${day.toISOString()}-${index}`}
                   className={`
-                    min-h-[100px] border rounded-lg p-2 cursor-pointer transition-colors
+                    min-h-[70px] border rounded-md p-1 cursor-pointer transition-all
                     ${isCurrentMonth ? 'bg-white' : 'bg-gray-50'}
                     ${isSelected 
-                      ? 'border-primary-500 ring-2 ring-primary-200' 
+                      ? 'border-primary-500 ring-1 ring-primary-200' 
                       : 'border-gray-200 hover:border-gray-300'
                     }
                     ${isTodayDate && !isSelected ? 'border-blue-300 bg-blue-50' : ''}
+                    hover:shadow-xs
+                    flex flex-col
                   `}
-                  onClick={() => setSelectedDate(day.toISOString().split('T')[0])}
+                  onClick={() => handleDateClick(day)}
                 >
-                  <div className="flex justify-between items-start mb-1">
+                  <div className="flex justify-between items-start mb-0.5">
                     <span className={`
-                      text-sm font-medium
+                      text-xs font-semibold
                       ${isCurrentMonth ? 'text-gray-900' : 'text-gray-400'}
                       ${isTodayDate ? 'text-blue-600' : ''}
+                      ${isSelected ? 'text-primary-600' : ''}
                     `}>
                       {format(day, 'd')}
                     </span>
                     {daySchedules.length > 0 && (
-                      <span className="text-xs bg-primary-100 text-primary-800 px-1.5 py-0.5 rounded-full">
+                      <span className="text-[10px] bg-primary-100 text-primary-800 px-1 py-0.5 rounded-full min-w-[16px] text-center">
                         {daySchedules.length}
                       </span>
                     )}
                   </div>
 
                   {/* Schedule Indicators */}
-                  <div className="space-y-1">
-                    {daySchedules.slice(0, 2).map((schedule) => (
+                  <div className="space-y-0.5 flex-grow">
+                    {daySchedules.slice(0, 2).map((schedule, idx) => (
                       <div
-                        key={schedule.id}
+                        key={`schedule-indicator-${schedule.id}-${idx}`}
                         className={`
-                          text-xs p-1 rounded text-white truncate
+                          text-[10px] px-1 py-0.5 rounded text-white truncate
                           ${getPriorityColor(schedule.priority)}
+                          hover:opacity-90 transition-opacity
                         `}
-                        title={schedule.title}
+                        title={`${formatTime(schedule.start_time)} ${schedule.title}`}
                       >
-                        {formatTime(schedule.start_time)} {schedule.title}
+                        <div className="font-medium truncate">
+                          {formatTime(schedule.start_time)}
+                        </div>
                       </div>
                     ))}
                     {daySchedules.length > 2 && (
-                      <div className="text-xs text-gray-500 text-center">
-                        +{daySchedules.length - 2} more
+                      <div className="text-[10px] text-gray-500 text-center">
+                        +{daySchedules.length - 2} thêm
                       </div>
                     )}
                   </div>
@@ -178,78 +705,445 @@ export const CalendarView: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Selected Date Schedules */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Lịch trình {format(new Date(selectedDate), 'dd/MM/yyyy')}
-            </h3>
-            <span className="text-sm text-gray-500">
-              {getSchedulesForSelectedDate.length} lịch trình
-            </span>
-          </div>
-        </CardHeader>
-        
-        <CardContent>
-          {getSchedulesForSelectedDate.length === 0 ? (
-            <div className="text-center py-8">
-              <Clock className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">Không có lịch trình nào cho ngày này</p>
-              <Button variant="outline" className="mt-3">
-                <Plus className="h-4 w-4 mr-2" />
-                Tạo lịch trình mới
-              </Button>
+      {/* Selected Date Schedules Dialog */}
+      <Dialog open={isDateDialogOpen} onOpenChange={setIsDateDialogOpen}>
+        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader className="flex flex-row items-center justify-between">
+            <div>
+              <DialogTitle className="text-lg">
+                {selectedDay ? formatDateTitle(selectedDay) : 'Lịch trình ngày'}
+              </DialogTitle>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedDaySchedules.length} lịch trình
+              </p>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {getSchedulesForSelectedDate.map((schedule) => (
-                <div
-                  key={schedule.id}
-                  className="flex items-start space-x-3 p-3 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+            
+          </DialogHeader>
+          
+          <ScrollArea className="h-[400px] pr-4">
+            {selectedDaySchedules.length === 0 ? (
+              <div className="text-center py-8">
+                <Clock className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-500 mb-2">Không có lịch trình nào</p>
+                <p className="text-xs text-gray-400 mb-4">
+                  Tạo lịch trình mới cho ngày này
+                </p>
+                <Button 
+                  size="sm" 
+                  onClick={handleCreateScheduleFromDateDialog}
+                  className="mb-4"
                 >
-                  <div className={`w-3 h-3 rounded-full mt-1.5 ${getPriorityColor(schedule.priority)}`}></div>
-                  <div className="flex-1 min-w-0">
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Tạo lịch trình
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3 pb-4">
+                {selectedDaySchedules.map((schedule, index) => (
+                  <div 
+                    key={`schedule-${schedule.id}-${index}`}
+                    className="p-4 border border-gray-200 rounded-lg hover:shadow-sm transition-shadow bg-white"
+                  >
                     <div className="flex items-start justify-between">
-                      <h4 className="font-medium text-gray-900 truncate">
-                        {schedule.title}
-                      </h4>
-                      <span className="text-sm text-gray-500 whitespace-nowrap ml-2">
-                        {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
-                      </span>
-                    </div>
-                    
-                    {schedule.description && (
-                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                        {schedule.description}
-                      </p>
-                    )}
-                    
-                    <div className="flex items-center space-x-4 mt-2">
-                      <div className="flex items-center space-x-1 text-xs text-gray-500">
-                        <MapPin className="h-3 w-3" />
-                        <span>{schedule.category || 'Không có danh mục'}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <h4 className="font-medium text-gray-900 text-base truncate">
+                            {schedule.title}
+                          </h4>
+                          <Badge 
+                            variant={getPriorityBadgeVariant(schedule.priority)} 
+                            className="text-xs"
+                          >
+                            {schedule.priority === 'high' ? 'Cao' : 
+                             schedule.priority === 'medium' ? 'TB' : 'Thấp'}
+                          </Badge>
+                          <Badge 
+                            variant={getStatusBadgeVariant(schedule.status)} 
+                            className="text-xs"
+                          >
+                            {getStatusText(schedule.status)}
+                          </Badge>
+                        </div>
+                        
+                        {schedule.description && (
+                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                            {schedule.description}
+                          </p>
+                        )}
+                        
+                        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            <span>
+                              {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                            </span>
+                          </div>
+                          
+                          {schedule.category && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4" />
+                              <span>{schedule.category}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <span className={`
-                        text-xs px-2 py-1 rounded-full
-                        ${schedule.status === 'completed' 
-                          ? 'bg-green-100 text-green-800' 
-                          : schedule.status === 'cancelled'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-blue-100 text-blue-800'
-                        }
-                      `}>
-                        {schedule.status === 'scheduled' ? 'Đã lên lịch' :
-                         schedule.status === 'completed' ? 'Hoàn thành' : 'Đã hủy'}
-                      </span>
+                      
+                      <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditClick(schedule)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteSchedule(schedule.id)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+          
+          <div className="flex justify-between pt-4 border-t">
+            <div className="text-sm text-gray-500">
+              Tổng: {selectedDaySchedules.length} lịch trình
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <Button 
+              onClick={handleCreateScheduleFromDateDialog}
+              className="ml-auto"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Thêm lịch trình
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Schedule Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Tạo lịch trình mới</DialogTitle>
+            {selectedDay && (
+              <p className="text-sm text-gray-500">
+                Ngày: {formatDateDisplay(selectedDay)}
+              </p>
+            )}
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleCreateSchedule)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Tiêu đề</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Nhập tiêu đề lịch trình" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Mô tả (tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        placeholder="Nhập mô tả chi tiết" 
+                        className="text-sm min-h-[80px]"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="start_time"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Thời gian bắt đầu</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="time" 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="end_time"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Thời gian kết thúc</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="time" 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Mức độ ưu tiên</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="text-sm h-9">
+                            <SelectValue placeholder="Chọn mức độ ưu tiên" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="low" className="text-sm">Thấp</SelectItem>
+                          <SelectItem value="medium" className="text-sm">Trung bình</SelectItem>
+                          <SelectItem value="high" className="text-sm">Cao</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="category"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Danh mục (tùy chọn)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="Công việc, Học tập..." 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsCreateDialogOpen(false)}
+                  className="text-sm h-9"
+                >
+                  Hủy
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={isCreating}
+                  className="text-sm h-9"
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                      Đang tạo...
+                    </>
+                  ) : 'Tạo lịch trình'}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Schedule Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Chỉnh sửa lịch trình</DialogTitle>
+            {selectedDay && (
+              <p className="text-sm text-gray-500">
+                Ngày: {formatDateDisplay(selectedDay)}
+              </p>
+            )}
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleEditSchedule)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Tiêu đề</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Nhập tiêu đề lịch trình" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Mô tả (tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        placeholder="Nhập mô tả chi tiết" 
+                        className="text-sm min-h-[80px]"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="start_time"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Thời gian bắt đầu</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="time" 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="end_time"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Thời gian kết thúc</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="time" 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Mức độ ưu tiên</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="text-sm h-9">
+                            <SelectValue placeholder="Chọn mức độ ưu tiên" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="low" className="text-sm">Thấp</SelectItem>
+                          <SelectItem value="medium" className="text-sm">Trung bình</SelectItem>
+                          <SelectItem value="high" className="text-sm">Cao</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="category"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Danh mục (tùy chọn)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="Công việc, Học tập..." 
+                          className="text-sm h-9"
+                          {...field} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditDialogOpen(false);
+                    setEditingSchedule(null);
+                  }}
+                  className="text-sm h-9"
+                >
+                  Hủy
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={isCreating}
+                  className="text-sm h-9"
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                      Đang cập nhật...
+                    </>
+                  ) : 'Cập nhật'}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

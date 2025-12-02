@@ -21,18 +21,18 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
         isUser ? 'bg-primary-600' : isError ? 'bg-red-500' : 'bg-green-500'
       }`}>
         {isUser ? (
-          <User className="h-4 w-4 text-white" />
+          <User className="h-4 w-4 text-black" />
         ) : isError ? (
-          <AlertCircle className="h-4 w-4 text-white" />
+          <AlertCircle className="h-4 w-4 text-black" />
         ) : (
-          <Bot className="h-4 w-4 text-white" />
+          <Bot className="h-4 w-4 text-black" />
         )}
       </div>
       
       <div className={`flex-1 ${isUser ? 'text-right' : ''}`}>
         <div className={`inline-block max-w-[70%] rounded-2xl px-4 py-2 ${
           isUser 
-            ? 'bg-primary-600 text-white' 
+            ? 'bg-primary-600 text-black' 
             : isError
             ? 'bg-red-100 text-red-800 border border-red-200'
             : 'bg-gray-100 text-gray-900'
@@ -48,7 +48,7 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
             <div className="space-y-1">
               {message.data.schedules.map((schedule: any, index: number) => (
                 <div key={index} className="text-sm text-blue-700">
-                  • {schedule.title} - {schedule.start_time}
+                  •id: {schedule.id} - title: {schedule.title} - ngày: {schedule.start_time}
                 </div>
               ))}
             </div>

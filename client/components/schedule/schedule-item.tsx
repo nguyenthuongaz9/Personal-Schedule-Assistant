@@ -82,9 +82,7 @@ export const ScheduleItem: React.FC<ScheduleItemProps> = ({ schedule }) => {
           </div>
         </div>
 
-        <button className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-          <MoreVertical className="h-4 w-4" />
-        </button>
+        
       </div>
     </Card>
   );

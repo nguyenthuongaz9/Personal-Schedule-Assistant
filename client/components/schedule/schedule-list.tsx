@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Calendar, Loader2, Plus, Edit, Trash2 } from 'lucide-react';
+import { Calendar, Loader2, Plus, Edit, Trash2, Clock, MapPin, Bell, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useAppStore } from '@/hooks/app-store';
-import { ScheduleItem } from './schedule-item';
 import { Schedule } from '@/types';
 import { apiClient } from '@/lib/axios-client';
 import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 
 interface PaginationInfo {
   next_cursor: number | null;
@@ -19,12 +19,15 @@ interface PaginationInfo {
 }
 
 interface ScheduleFormData {
-  title: string;
+  event: string;
   description: string;
   start_time: string;
   end_time: string;
-  priority: string;
+  location: string;
+  reminder_minutes: number | undefined;
+  priority: 'low' | 'medium' | 'high';
   category: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
 }
 
 export const ScheduleList: React.FC = () => {
@@ -35,37 +38,95 @@ export const ScheduleList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [filterDate, setFilterDate] = useState<string>(() => {
-    return '2025-12-01';
+    return format(new Date(), 'yyyy-MM-dd');
   });
 
-  // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [formLoading, setFormLoading] = useState(false);
 
-  // Form data
   const [formData, setFormData] = useState<ScheduleFormData>({
-    title: '',
+    event: '',
     description: '',
     start_time: '',
     end_time: '',
+    location: '',
+    reminder_minutes: undefined,
     priority: 'medium',
-    category: 'general'
+    category: 'general',
+    status: 'scheduled'
   });
-
-  // Format date function
   const formatDate = (dateString: string) => {
     return format(new Date(dateString), 'EEEE, dd MMMM yyyy', { locale: vi });
   };
 
-  // Format time for input
+  const formatTime = (dateTimeString: string) => {
+    try {
+      const date = new Date(dateTimeString);
+      return format(date, 'HH:mm');
+    } catch (error) {
+      return '--:--';
+    }
+  };
+
   const formatTimeForInput = (dateString: string) => {
     return new Date(dateString).toISOString().slice(0, 16);
   };
 
-  // Fetch schedules function
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'success';
+      case 'cancelled':
+        return 'destructive';
+      case 'scheduled':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'scheduled':
+        return 'Đã lên lịch';
+      case 'completed':
+        return 'Hoàn thành';
+      case 'cancelled':
+        return 'Đã hủy';
+      default:
+        return status;
+    }
+  };
+
+  const getPriorityBadgeVariant = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return 'destructive';
+      case 'medium':
+        return 'warning';
+      case 'low':
+        return 'success';
+      default:
+        return 'default';
+    }
+  };
+
+  const getPriorityText = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return 'Cao';
+      case 'medium':
+        return 'Trung bình';
+      case 'low':
+        return 'Thấp';
+      default:
+        return priority;
+    }
+  };
+
   const fetchSchedules = useCallback(async (cursor?: number | null, direction: 'older' | 'newer' = 'older') => {
     const isLoadingMore = !!cursor;
     
@@ -77,37 +138,35 @@ export const ScheduleList: React.FC = () => {
     setError(null);
 
     try {
-      const params: any = {
+      const params = {
         limit: 10,
-        direction
+        direction,
+        cursor: cursor || undefined,
+        date: filterDate || undefined
       };
       
-      if (cursor) {
-        params.cursor = cursor;
-      }
-      
-      if (filterDate && filterDate !== '') {
-        params.date = filterDate;
-      }
+      console.log('Fetching schedules with params:', params);
       
       const response = await apiClient.getSchedulesByCursor(params);
       
       console.log('API Response:', response);
       
       if (response.success && response.data) {
-        const transformedSchedules: Schedule[] = response.data.schedules.map((schedule: any) => ({
+        const schedulesData = response.data.schedules || response.data.data || [];
+        const transformedSchedules: Schedule[] = schedulesData.map((schedule: any) => ({
           id: schedule.id,
-          user_id: 1, // TODO: Lấy từ authentication
-          title: schedule.title,
+          user_id: schedule.user_id || 1,
+          event: schedule.event || schedule.title || '',
           description: schedule.description || '',
           start_time: schedule.start_time,
           end_time: schedule.end_time,
-          status: 'pending',
+          location: schedule.location || '',
+          reminder_minutes: schedule.reminder_minutes,
+          status: schedule.status || 'scheduled',
           priority: schedule.priority || 'medium',
           category: schedule.category || 'general',
           created_at: schedule.created_at || new Date().toISOString(),
           updated_at: schedule.updated_at || new Date().toISOString(),
-          is_completed: false
         }));
 
         if (direction === 'older' && isLoadingMore) {
@@ -118,20 +177,42 @@ export const ScheduleList: React.FC = () => {
         
         if (response.data.pagination) {
           setPagination(response.data.pagination);
+        } else {
+          setPagination({
+            next_cursor: null,
+            prev_cursor: null,
+            limit: 10,
+            direction: 'older',
+            has_more: transformedSchedules.length >= 10
+          });
         }
       } else {
-        throw new Error(response.message || 'Failed to fetch schedules');
+        if (response.message?.includes('Not Found') || response.message?.includes('404')) {
+          console.log('Cursor endpoint not found, trying regular schedules endpoint');
+          const regularResponse = await apiClient.getSchedules(filterDate || undefined);
+          
+          if (regularResponse.success && regularResponse.data) {
+            const schedulesData = regularResponse.data as Schedule[];
+            setSchedules(schedulesData);
+            setPagination({
+              next_cursor: null,
+              prev_cursor: null,
+              limit: 10,
+              direction: 'older',
+              has_more: false
+            });
+          } else {
+            throw new Error(regularResponse.message || 'Failed to fetch schedules');
+          }
+        } else {
+          throw new Error(response.message || 'Failed to fetch schedules');
+        }
       }
     } catch (err: any) {
       console.error('Fetch schedules error:', err);
       
-      // Kiểm tra nếu là lỗi 401 (Unauthorized)
       if (err.response?.status === 401) {
         setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-        // Có thể redirect đến trang login ở đây
-        // if (typeof window !== 'undefined') {
-        //   window.location.href = '/login';
-        // }
       } else {
         setError('Không thể tải lịch trình. Vui lòng thử lại.');
       }
@@ -141,48 +222,45 @@ export const ScheduleList: React.FC = () => {
     }
   }, [filterDate]);
 
-  // Initial load and when filterDate changes
   useEffect(() => {
     setSchedules([]);
     fetchSchedules();
   }, [fetchSchedules, filterDate]);
 
-  // Load more function
   const loadMore = useCallback(() => {
-    if (pagination?.has_more && pagination.next_cursor && !loadingMore) {
+    if (pagination?.has_more && !loadingMore && pagination.next_cursor) {
       fetchSchedules(pagination.next_cursor, 'older');
     }
   }, [pagination, loadingMore, fetchSchedules]);
 
-  // Refresh function
   const refresh = useCallback(() => {
     setSchedules([]);
     fetchSchedules();
   }, [fetchSchedules]);
 
-  // Handle date filter change
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFilterDate(e.target.value);
   };
 
-  // Clear date filter
   const clearFilter = () => {
     setFilterDate('');
   };
 
-  // Modal handlers
   const openAddModal = () => {
     const now = new Date();
-    const defaultStart = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
-    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000); // 2 hours from now
+    const defaultStart = new Date(now.getTime() + 60 * 60 * 1000); 
+    const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000); 
 
     setFormData({
-      title: '',
+      event: '',
       description: '',
       start_time: formatTimeForInput(defaultStart.toISOString()),
       end_time: formatTimeForInput(defaultEnd.toISOString()),
+      location: '',
+      reminder_minutes: undefined,
       priority: 'medium',
-      category: 'general'
+      category: 'general',
+      status: 'scheduled'
     });
     setShowAddModal(true);
   };
@@ -190,12 +268,15 @@ export const ScheduleList: React.FC = () => {
   const openEditModal = (schedule: Schedule) => {
     setSelectedSchedule(schedule);
     setFormData({
-      title: schedule.title,
+      event: schedule.event,
       description: schedule.description || '',
       start_time: formatTimeForInput(schedule.start_time),
-      end_time: formatTimeForInput(schedule.end_time),
-      priority: schedule.priority || 'medium',
-      category: schedule.category || 'general'
+      end_time: schedule.end_time ? formatTimeForInput(schedule.end_time) : '',
+      location: schedule.location || '',
+      reminder_minutes: schedule.reminder_minutes || undefined,
+      priority: schedule.priority,
+      category: schedule.category,
+      status: schedule.status
     });
     setShowEditModal(true);
   };
@@ -211,16 +292,18 @@ export const ScheduleList: React.FC = () => {
     setShowDeleteModal(false);
     setSelectedSchedule(null);
     setFormData({
-      title: '',
+      event: '',
       description: '',
       start_time: '',
       end_time: '',
+      location: '',
+      reminder_minutes: undefined,
       priority: 'medium',
-      category: 'general'
+      category: 'general',
+      status: 'scheduled'
     });
   };
 
-  // Form handlers
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -229,24 +312,34 @@ export const ScheduleList: React.FC = () => {
     }));
   };
 
-  // Submit handlers
+  const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value === '' ? undefined : parseInt(value, 10)
+    }));
+  };
+
   const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
 
     try {
       const response = await apiClient.createSchedule({
-        title: formData.title,
+        event: formData.event,
         description: formData.description,
         start_time: formData.start_time,
-        end_time: formData.end_time,
-        category: formData.category,
+        end_time: formData.end_time || null,
+        location: formData.location || null,
+        reminder_minutes: formData.reminder_minutes || null,
         priority: formData.priority,
+        category: formData.category,
+        status: formData.status
       });
       
       if (response.success) {
         closeModals();
-        refresh(); // Refresh the list
+        refresh(); 
       } else {
         throw new Error(response.message || 'Failed to create schedule');
       }
@@ -266,17 +359,20 @@ export const ScheduleList: React.FC = () => {
 
     try {
       const response = await apiClient.updateSchedule(selectedSchedule.id, {
-        title: formData.title,
+        event: formData.event,
         description: formData.description,
         start_time: formData.start_time,
-        end_time: formData.end_time,
-        category: formData.category,
+        end_time: formData.end_time || null,
+        location: formData.location || null,
+        reminder_minutes: formData.reminder_minutes || null,
         priority: formData.priority,
+        category: formData.category,
+        status: formData.status
       });
       
       if (response.success) {
         closeModals();
-        refresh(); // Refresh the list
+        refresh(); 
       } else {
         throw new Error(response.message || 'Failed to update schedule');
       }
@@ -298,7 +394,7 @@ export const ScheduleList: React.FC = () => {
       
       if (response.success) {
         closeModals();
-        refresh(); // Refresh the list
+        refresh(); 
       } else {
         throw new Error(response.message || 'Failed to delete schedule');
       }
@@ -312,11 +408,8 @@ export const ScheduleList: React.FC = () => {
 
   const displaySchedules = schedules;
 
-  
-
   return (
     <div className="space-y-6 p-2">
-      {/* Header với filter và button thêm */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-gray-900">
           {filterDate ? `Lịch trình ${formatDate(filterDate)}` : 'Tất cả lịch trình'}
@@ -338,7 +431,6 @@ export const ScheduleList: React.FC = () => {
         </div>
       </div>
 
-      {/* Date Filter */}
       <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
         <div className="flex items-center gap-2">
           <label htmlFor="date-filter" className="text-sm font-medium text-gray-700">
@@ -355,13 +447,15 @@ export const ScheduleList: React.FC = () => {
         {filterDate && (
           <Button
             onClick={clearFilter}
-            className="px-3 py-2 "
+            variant="outline"
+            className="px-3 py-2"
           >
             Xóa lọc
           </Button>
         )}
         <Button
           onClick={refresh}
+          variant="outline"
           className="px-3 py-2 text-sm gap-2"
         >
           <Loader2 className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -369,7 +463,6 @@ export const ScheduleList: React.FC = () => {
         </Button>
       </div>
 
-      {/* Error State */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <p className="text-red-800 text-sm">{error}</p>
@@ -382,42 +475,122 @@ export const ScheduleList: React.FC = () => {
         </div>
       )}
 
-      {/* Loading State */}
       {loading && schedules.length === 0 && (
         <div className="flex justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
         </div>
       )}
 
-      {/* Schedules List */}
       {displaySchedules.length > 0 && (
         <div className="space-y-3">
           {displaySchedules.map((schedule) => (
             <div key={schedule.id} className="group relative">
-              <ScheduleItem schedule={schedule} />
-              <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button
-                  onClick={() => openEditModal(schedule)}
-                  className="p-2 rounded-lg"
-                  title="Sửa"
-                >
-                  <Edit className="h-3 w-3" />
-                </Button>
-                <Button
-                  onClick={() => openDeleteModal(schedule)}
-                  className="p-2 rounded-lg"
-                  variant="destructive"
-                  title="Xóa"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+              <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm transition-shadow">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <h4 className="font-medium text-gray-900 text-base truncate">
+                        {schedule.event}
+                      </h4>
+                      <Badge 
+                        variant={getPriorityBadgeVariant(schedule.priority)} 
+                        className="text-xs"
+                      >
+                        {getPriorityText(schedule.priority)}
+                      </Badge>
+                      <Badge 
+                        variant={getStatusBadgeVariant(schedule.status)} 
+                        className="text-xs"
+                      >
+                        {getStatusText(schedule.status)}
+                      </Badge>
+                    </div>
+                    
+                    {schedule.description && (
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                        {schedule.description}
+                      </p>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4" />
+                          <span>
+                            {formatTime(schedule.start_time)} 
+                            {schedule.end_time && ` - ${formatTime(schedule.end_time)}`}
+                          </span>
+                        </div>
+                        
+                        {schedule.location && (
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
+                            <span>{schedule.location}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {schedule.reminder_minutes && (
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <Bell className="h-4 w-4" />
+                          <span>Nhắc trước {schedule.reminder_minutes} phút</span>
+                        </div>
+                      )}
+                      
+                      {schedule.category && schedule.category !== 'general' && (
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <AlertCircle className="h-4 w-4" />
+                          <span>Danh mục: {schedule.category}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditModal(schedule)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDeleteModal(schedule)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Load More */}
+      {!loading && displaySchedules.length === 0 && (
+        <div className="text-center py-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 mb-4">
+            <Calendar className="h-6 w-6 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-1">
+            Chưa có lịch trình
+          </h3>
+          <p className="text-gray-500 mb-4">
+            {filterDate 
+              ? `Không có lịch trình nào cho ngày ${formatDate(filterDate)}` 
+              : 'Bạn chưa có lịch trình nào'}
+          </p>
+          <Button onClick={openAddModal}>
+            <Plus className="h-4 w-4 mr-2" />
+            Tạo lịch trình đầu tiên
+          </Button>
+        </div>
+      )}
+
       {loadingMore && (
         <div className="flex justify-center py-4">
           <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
@@ -444,7 +617,6 @@ export const ScheduleList: React.FC = () => {
         </div>
       )}
 
-      {/* Add Schedule Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg w-full max-w-md">
@@ -453,12 +625,12 @@ export const ScheduleList: React.FC = () => {
               <form onSubmit={handleAddSchedule} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tiêu đề *
+                    Sự kiện <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    name="title"
-                    value={formData.title}
+                    name="event"
+                    value={formData.event}
                     onChange={handleFormChange}
                     required
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -479,7 +651,7 @@ export const ScheduleList: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Thời gian bắt đầu *
+                      Thời gian bắt đầu <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="datetime-local"
@@ -492,17 +664,43 @@ export const ScheduleList: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Thời gian kết thúc *
+                      Thời gian kết thúc (tùy chọn)
                     </label>
                     <input
                       type="datetime-local"
                       name="end_time"
                       value={formData.end_time}
                       onChange={handleFormChange}
-                      required
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Địa điểm (tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    name="location"
+                    value={formData.location}
+                    onChange={handleFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nhắc nhở trước (phút)
+                  </label>
+                  <input
+                    type="number"
+                    name="reminder_minutes"
+                    value={formData.reminder_minutes || ''}
+                    onChange={handleNumberChange}
+                    min="1"
+                    max="1440"
+                    placeholder="Số phút nhắc trước (VD: 15)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -533,9 +731,25 @@ export const ScheduleList: React.FC = () => {
                       <option value="general">Chung</option>
                       <option value="work">Công việc</option>
                       <option value="personal">Cá nhân</option>
-                      <option value="health">Sức khỏe</option>
+                      <option value="meeting">Họp</option>
+                      <option value="alarm">Báo thức</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Trạng thái
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="scheduled">Đã lên lịch</option>
+                    <option value="completed">Hoàn thành</option>
+                    <option value="cancelled">Đã hủy</option>
+                  </select>
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
                   <button
@@ -560,7 +774,6 @@ export const ScheduleList: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Schedule Modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg w-full max-w-md">
@@ -569,12 +782,12 @@ export const ScheduleList: React.FC = () => {
               <form onSubmit={handleEditSchedule} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tiêu đề *
+                    Sự kiện <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    name="title"
-                    value={formData.title}
+                    name="event"
+                    value={formData.event}
                     onChange={handleFormChange}
                     required
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -595,7 +808,7 @@ export const ScheduleList: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Thời gian bắt đầu *
+                      Thời gian bắt đầu <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="datetime-local"
@@ -608,17 +821,43 @@ export const ScheduleList: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Thời gian kết thúc *
+                      Thời gian kết thúc (tùy chọn)
                     </label>
                     <input
                       type="datetime-local"
                       name="end_time"
                       value={formData.end_time}
                       onChange={handleFormChange}
-                      required
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Địa điểm (tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    name="location"
+                    value={formData.location}
+                    onChange={handleFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nhắc nhở trước (phút)
+                  </label>
+                  <input
+                    type="number"
+                    name="reminder_minutes"
+                    value={formData.reminder_minutes || ''}
+                    onChange={handleNumberChange}
+                    min="1"
+                    max="1440"
+                    placeholder="Số phút nhắc trước (VD: 15)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -649,9 +888,25 @@ export const ScheduleList: React.FC = () => {
                       <option value="general">Chung</option>
                       <option value="work">Công việc</option>
                       <option value="personal">Cá nhân</option>
-                      <option value="health">Sức khỏe</option>
+                      <option value="meeting">Họp</option>
+                      <option value="alarm">Báo thức</option>
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Trạng thái
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleFormChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="scheduled">Đã lên lịch</option>
+                    <option value="completed">Hoàn thành</option>
+                    <option value="cancelled">Đã hủy</option>
+                  </select>
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
                   <button
@@ -676,14 +931,13 @@ export const ScheduleList: React.FC = () => {
         </div>
       )}
 
-      {/* Delete Schedule Modal */}
       {showDeleteModal && selectedSchedule && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg w-full max-w-md">
             <div className="p-6">
               <h3 className="text-lg font-semibold mb-4">Xóa lịch trình</h3>
               <p className="text-gray-600 mb-6">
-                Bạn có chắc chắn muốn xóa lịch trình "{selectedSchedule.title}"? 
+                Bạn có chắc chắn muốn xóa lịch trình "{selectedSchedule.event}"? 
                 Hành động này không thể hoàn tác.
               </p>
               <div className="flex justify-end gap-3">

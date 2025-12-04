@@ -9,10 +9,12 @@ export interface User {
 export interface Schedule {
   id: number;
   user_id: number;
-  title: string;
+  event: string;
   description: string;
   start_time: string;
-  end_time: string;
+  end_time?: string;
+  location: string;
+  reminder_minutes?: number;
   status: 'scheduled' | 'completed' | 'cancelled';
   category: string;
   priority: 'low' | 'medium' | 'high';

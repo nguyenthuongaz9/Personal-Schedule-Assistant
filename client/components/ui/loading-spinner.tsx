@@ -33,7 +33,7 @@ export const ProgressBar: React.FC<{ duration: number }> = ({ duration }) => {
           clearInterval(interval);
           return 100;
         }
-        return prev + (100 / (duration / 100)); // Cập nhật mỗi 100ms
+        return prev + (100 / (duration / 100)); 
       });
     }, 100);
 

@@ -7,14 +7,15 @@ export interface ChatRequest {
 
 export interface ScheduleRequest {
   user_id?: number;
-  title: string;
+  event: string;
   description?: string;
   start_time: string;
-  end_time: string;
+  end_time?: string;
+  location:string;
+  reminder_minutes?:number;
   category?: string;
   priority?: 'low' | 'medium' | 'high';
 }
-
 export interface ApiResponse<T = any> {
   success: boolean;
   message?: string;

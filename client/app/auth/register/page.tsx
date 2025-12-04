@@ -104,24 +104,19 @@ const Register: React.FC = () => {
     setServerError('');
 
     try {
-      // Prepare data for API call
       const registerData: RegisterCredentials = {
         name: formData.fullName.trim(),
         email: formData.email,
         password: formData.password,
       };
 
-      // Call register function from AuthContext
       const response = await register(registerData);
 
       if (response.success) {
-        // Success - AuthContext will handle redirection
-        // You can also show a success message here
+     
         console.log('Registration successful:', response.data);
       } else {
-        // Handle API errors
         if (response.error?.errors) {
-          // Handle field-specific errors from API
           const apiErrors = response.error.errors;
           setErrors({
             email: apiErrors.email?.[0],
@@ -163,7 +158,6 @@ const Register: React.FC = () => {
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
-          {/* General error message */}
           {(serverError || errors.general) && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="flex">
@@ -182,7 +176,6 @@ const Register: React.FC = () => {
           )}
 
           <div className="space-y-4">
-            {/* Full Name Field */}
             <div>
               <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
                 Họ và tên
@@ -210,7 +203,6 @@ const Register: React.FC = () => {
               )}
             </div>
 
-            {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 Email
@@ -240,7 +232,6 @@ const Register: React.FC = () => {
 
             
 
-            {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 Mật khẩu
@@ -283,7 +274,6 @@ const Register: React.FC = () => {
               </p>
             </div>
 
-            {/* Confirm Password Field */}
             <div>
               <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
                 Xác nhận mật khẩu
@@ -370,7 +360,6 @@ const Register: React.FC = () => {
             </button>
           </div>
 
-          {/* Additional error from AuthContext */}
           {authError && !serverError && (
             <div className="rounded-md bg-yellow-50 p-4">
               <div className="flex">

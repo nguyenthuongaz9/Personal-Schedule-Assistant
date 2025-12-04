@@ -32,6 +32,8 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(hours=24)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 
+# init variable
+
 db_manager = None
 assistant = None
 
@@ -57,6 +59,9 @@ except Exception as e:
 def validate_email(email: str) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
+
+
+
 
 def token_required(f):
     
@@ -465,50 +470,9 @@ def update_profile():
             'message': 'Có lỗi xảy ra khi cập nhật thông tin'
         }), 500
 
-@app.route('/api/auth/check-email', methods=['POST'])
-def check_email_availability():
-   
-    try:
-        if not check_db_connection():
-            return jsonify({
-                'success': False,
-                'message': 'Database service unavailable'
-            }), 503
-        
-        data = request.get_json()
-        if not data or 'email' not in data:
-            return jsonify({
-                'success': False,
-                'message': 'Thiếu thông tin email'
-            }), 400
-        
-        email = data['email'].strip().lower()
 
-        if not validate_email(email):
-            return jsonify({
-                'success': False,
-                'available': False,
-                'message': 'Email không hợp lệ'
-            })
-        
-        user_model = UserModel(db_manager)
 
-        user = user_model.get_user_by_email(email)
-        
-        return jsonify({
-            'success': True,
-            'available': user is None,
-            'message': 'Email đã được sử dụng' if user else 'Email có thể sử dụng'
-        })
-        
-    except Exception as e:
-        logger.error(f"Check email error: {e}")
-        return jsonify({
-            'success': False,
-            'available': False,
-            'message': 'Có lỗi xảy ra khi kiểm tra email'
-        }), 500
-
+# chat controller
 @app.route('/api/chat', methods=['POST'])
 @token_required
 def chat_endpoint():
@@ -560,6 +524,7 @@ def chat_endpoint():
 
 
 
+# schedule controller
 
 @app.route('/api/schedules', methods=['GET'])
 @token_required
@@ -580,38 +545,48 @@ def get_schedules():
         
         schedule_list = []
         for schedule in schedules:
-            
             if isinstance(schedule, dict):
-                
                 schedule_info = {
                     'id': schedule.get('id'),
-                    'title': schedule.get('title', ''),
+                    'event': schedule.get('event', ''),
                     'description': schedule.get('description', ''),
                     'start_time': schedule.get('start_time'),
                     'end_time': schedule.get('end_time'),
-                    'status': schedule.get('status', 'pending'),
+                    'location': schedule.get('location'),
+                    'reminder_minutes': schedule.get('reminder_minutes'),
+                    'status': schedule.get('status', 'scheduled'),
                     'priority': schedule.get('priority', 'medium'),
-                    'category': schedule.get('category', '')
+                    'category': schedule.get('category', 'general'),
+                    'created_at': schedule.get('created_at'),
+                    'updated_at': schedule.get('updated_at')
                 }
             else:
-               
                 schedule_info = {
                     'id': schedule.id,
-                    'title': schedule.title,
+                    'event': schedule.event,
                     'description': schedule.description,
                     'start_time': schedule.start_time.isoformat() if hasattr(schedule.start_time, 'isoformat') else str(schedule.start_time),
-                    'end_time': schedule.end_time.isoformat() if hasattr(schedule.end_time, 'isoformat') else str(schedule.end_time),
+                    'end_time': schedule.end_time.isoformat() if schedule.end_time and hasattr(schedule.end_time, 'isoformat') else (str(schedule.end_time) if schedule.end_time else None),
+                    'location': schedule.location,
+                    'reminder_minutes': schedule.reminder_minutes,
                     'status': schedule.status,
                     'priority': schedule.priority,
-                    'category': schedule.category
+                    'category': schedule.category,
+                    'created_at': schedule.created_at.isoformat() if hasattr(schedule.created_at, 'isoformat') else str(schedule.created_at),
+                    'updated_at': schedule.updated_at.isoformat() if hasattr(schedule.updated_at, 'isoformat') else str(schedule.updated_at)
                 }
             
-            # Xử lý datetime nếu cần (cho cả dict và object)
             if schedule_info['start_time'] and hasattr(schedule_info['start_time'], 'isoformat'):
                 schedule_info['start_time'] = schedule_info['start_time'].isoformat()
             
             if schedule_info['end_time'] and hasattr(schedule_info['end_time'], 'isoformat'):
                 schedule_info['end_time'] = schedule_info['end_time'].isoformat()
+            
+            if schedule_info.get('created_at') and hasattr(schedule_info['created_at'], 'isoformat'):
+                schedule_info['created_at'] = schedule_info['created_at'].isoformat()
+            
+            if schedule_info.get('updated_at') and hasattr(schedule_info['updated_at'], 'isoformat'):
+                schedule_info['updated_at'] = schedule_info['updated_at'].isoformat()
             
             schedule_list.append(schedule_info)
         
@@ -630,12 +605,6 @@ def get_schedules():
             'message': 'Lỗi khi lấy lịch trình'
         }), 500
 
-
-
-
-
-
-
 @app.route('/api/schedules/upcoming', methods=['GET'])
 @token_required
 def get_upcoming_schedules():
@@ -653,19 +622,21 @@ def get_upcoming_schedules():
         schedule_model = ScheduleModel(db_manager)
         schedules = schedule_model.get_upcoming_schedules(user_id, hours)
         
-        # schedules đã là danh sách các dictionary từ method get_upcoming_schedules
-        # Không cần chuyển đổi lại, chỉ cần trích xuất thông tin cần thiết
-        
         schedule_list = []
         for schedule in schedules:
             schedule_info = {
-                'id': schedule['id'],  # Sửa: schedule là dict, dùng schedule['id']
-                'title': schedule['title'],
-                'start_time': schedule['start_time'],  # Đã được format trong model
-                'end_time': schedule['end_time'],      # Đã được format trong model
-                'priority': schedule['priority'],
-                'category': schedule['category'],
-                'status': schedule.get('status', 'scheduled')  # Thêm trạng thái nếu cần
+                'id': schedule['id'],
+                'event': schedule['event'],
+                'description': schedule.get('description', ''),
+                'start_time': schedule['start_time'],
+                'end_time': schedule['end_time'],
+                'location': schedule.get('location'),
+                'reminder_minutes': schedule.get('reminder_minutes'),
+                'priority': schedule.get('priority', 'medium'),
+                'category': schedule.get('category', 'general'),
+                'status': schedule.get('status', 'scheduled'),
+                'created_at': schedule.get('created_at'),
+                'updated_at': schedule.get('updated_at')
             }
             schedule_list.append(schedule_info)
         
@@ -681,11 +652,9 @@ def get_upcoming_schedules():
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
-            'success': False, 
+            'success': False,
             'message': 'Lỗi khi lấy lịch trình sắp tới'
         }), 500
-
-
 
 @app.route('/api/schedules', methods=['POST'])
 @token_required
@@ -704,7 +673,7 @@ def create_schedule():
                 'message': 'Dữ liệu không hợp lệ'
             }), 400
         
-        required_fields = ['title', 'start_time', 'end_time']
+        required_fields = ['event', 'start_time']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({
@@ -716,13 +685,17 @@ def create_schedule():
         
         from models import ScheduleModel
         schedule_model = ScheduleModel(db_manager)
+        
         data_template = {
-            'title': data['title'],
+            'event': data['event'],
             'description': data.get('description', ''),
             'start_time': data['start_time'],
-            'end_time': data['end_time'],
+            'end_time': data.get('end_time'), 
+            'location': data.get('location'),
+            'reminder_minutes': data.get('reminder_minutes'),
             'priority': data.get('priority', 'medium'),
-            'category': data.get('category', 'general')
+            'category': data.get('category', 'general'),
+            'status': data.get('status', 'scheduled')
         }
         
         schedule_id = schedule_model.create_schedule(
@@ -730,20 +703,23 @@ def create_schedule():
             data_template
         )
         
+        new_schedule = schedule_model.get_schedule_by_id_with_user(schedule_id, user_id)
+        
         return jsonify({
             'success': True,
             'message': 'Tạo lịch trình thành công',
-            'schedule_id': schedule_id
+            'schedule_id': schedule_id,
+            'schedule': new_schedule if new_schedule else None
         })
         
     except Exception as e:
         logger.error(f"Create schedule error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'Lỗi khi tạo lịch trình: {str(e)}'
         }), 500
-
-
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
 @token_required
@@ -762,7 +738,7 @@ def update_schedule(schedule_id):
                 'message': 'Dữ liệu không hợp lệ'
             }), 400
         
-        required_fields = ['title', 'start_time', 'end_time']
+        required_fields = ['event', 'start_time']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({
@@ -782,23 +758,26 @@ def update_schedule(schedule_id):
                 'message': 'Lịch trình không tồn tại'
             }), 404
         
-       
         update_data = {
-            'title': data['title'],
-            'description': data.get('description', ''),
+            'event': data['event'],
+            'description': data.get('description', existing_schedule.get('description', '')),
             'start_time': data['start_time'],
-            'end_time': data['end_time'],
-            'priority': data.get('priority', 'medium'),
-            'category': data.get('category', 'general')
+            'end_time': data.get('end_time'),
+            'location': data.get('location', existing_schedule.get('location')),
+            'reminder_minutes': data.get('reminder_minutes', existing_schedule.get('reminder_minutes')),
+            'priority': data.get('priority', existing_schedule.get('priority', 'medium')),
+            'category': data.get('category', existing_schedule.get('category', 'general')),
+            'status': data.get('status', existing_schedule.get('status', 'scheduled'))
         }
         
-       
         success = schedule_model.update_schedule(schedule_id, update_data)
         
         if success:
+            updated_schedule = schedule_model.get_schedule_by_id_with_user(schedule_id, user_id)
             return jsonify({
                 'success': True,
-                'message': 'Cập nhật lịch trình thành công'
+                'message': 'Cập nhật lịch trình thành công',
+                'schedule': updated_schedule
             })
         else:
             return jsonify({
@@ -808,6 +787,8 @@ def update_schedule(schedule_id):
         
     except Exception as e:
         logger.error(f"Update schedule error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'Lỗi khi cập nhật lịch trình: {str(e)}'
@@ -835,27 +816,123 @@ def delete_schedule(schedule_id):
                 'message': f'Lịch trình không tồn tại hoặc bạn không có quyền xóa'
             }), 404
         
-        success = schedule_model.delete_schedule(schedule_id)
+
+        delete_option = request.args.get('option', 'delete')
+        
+        if delete_option == 'cancel':
+            success = schedule_model.update_schedule(schedule_id, {'status': 'cancelled'})
+            message = f'Đã hủy lịch trình ID {schedule_id}'
+        else:
+            success = schedule_model.delete_schedule(schedule_id)
+            message = f'Đã xóa lịch trình ID {schedule_id}'
         
         if success:
             return jsonify({
                 'success': True,
-                'message': f'Đã xóa lịch trình ID {schedule_id}',
-                'schedule_id': schedule_id
+                'message': message,
+                'schedule_id': schedule_id,
+                'option': delete_option
             })
         else:
             return jsonify({
                 'success': False,
-                'message': f'Không thể xóa lịch trình ID {schedule_id}'
+                'message': f'Không thể xóa/hủy lịch trình ID {schedule_id}'
             }), 500
             
     except Exception as e:
         logger.error(f"Delete schedule error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
-            'message': 'Lỗi khi xóa lịch trình'
+            'message': 'Lỗi khi xóa/hủy lịch trình'
         }), 500
 
+@app.route('/api/schedules/search', methods=['GET'])
+@token_required
+def search_schedules():
+    """
+    Tìm kiếm lịch trình
+    """
+    try:
+        if not check_db_connection():
+            return jsonify({
+                'success': False,
+                'message': 'Database service unavailable'
+            }), 503
+
+        user_id = request.user_id
+        search_term = request.args.get('q', '')
+        
+        if not search_term or len(search_term.strip()) < 2:
+            return jsonify({
+                'success': False,
+                'message': 'Vui lòng nhập ít nhất 2 ký tự để tìm kiếm'
+            }), 400
+        
+        from models import ScheduleModel
+        schedule_model = ScheduleModel(db_manager)
+        
+        schedules = schedule_model.search_schedules(user_id, search_term.strip())
+        
+        return jsonify({
+            'success': True,
+            'schedules': schedules,
+            'count': len(schedules),
+            'search_term': search_term
+        })
+        
+    except Exception as e:
+        logger.error(f"Search schedules error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': 'Lỗi khi tìm kiếm lịch trình'
+        }), 500
+
+@app.route('/api/schedules/<int:schedule_id>', methods=['GET'])
+@token_required
+def get_schedule_detail(schedule_id):
+    """
+    Lấy chi tiết một lịch trình cụ thể
+    """
+    try:
+        if not check_db_connection():
+            return jsonify({
+                'success': False,
+                'message': 'Database service unavailable'
+            }), 503
+
+        user_id = request.user_id
+        
+        from models import ScheduleModel
+        schedule_model = ScheduleModel(db_manager)
+        
+        schedule = schedule_model.get_schedule_by_id_with_user(schedule_id, user_id)
+        
+        if not schedule:
+            return jsonify({
+                'success': False,
+                'message': 'Lịch trình không tồn tại'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'schedule': schedule
+        })
+        
+    except Exception as e:
+        logger.error(f"Get schedule detail error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': 'Lỗi khi lấy thông tin lịch trình'
+        }), 500
+
+
+# test ollama
 @app.route('/api/test/ollama', methods=['POST'])
 @token_required
 def test_ollama():
@@ -917,10 +994,12 @@ def get_schedules_cursor():
         for schedule in schedules:
             schedule_info = {
                 'id': schedule['id'],
-                'title': schedule['title'],
+                'event': schedule['event'],
                 'description': schedule.get('description', '') or '',
                 'start_time': schedule['start_time'],
                 'end_time': schedule['end_time'],
+                'reminder_minutes': schedule['reminder_minutes'],
+                'location': schedule['location'],
                 'priority': schedule.get('priority', 'medium'),
                 'category': schedule.get('category', 'general')
             }
@@ -1026,10 +1105,12 @@ def get_schedules_in_range():
         for schedule in schedules:
             schedule_info = {
                 'id': schedule['id'],
-                'title': schedule['title'],
+                'event': schedule['event'],
                 'description': schedule['description'],
                 'start_time': schedule['start_time'].isoformat() if hasattr(schedule['start_time'], 'isoformat') else str(schedule['start_time']),
                 'end_time': schedule['end_time'].isoformat() if hasattr(schedule['end_time'], 'isoformat') else str(schedule['end_time']),
+                'reminder_minutes':schedule['reminder_minutes'],
+                'location': schedule['location'],
                 'status': schedule['status'],
                 'priority': schedule['priority'],
                 'category': schedule['category'],

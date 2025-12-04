@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -11,7 +11,7 @@ import {
   Edit,
   Trash2,
   Loader2,
-  X
+  Bell
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, 
          isSameMonth, isSameDay, isToday, parseISO, 
@@ -26,8 +26,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
-  DialogClose,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -55,10 +53,12 @@ import toast from 'react-hot-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 const scheduleFormSchema = z.object({
-  title: z.string().min(1, "Tiêu đề là bắt buộc"),
+  event: z.string().min(1, "Tiêu đề là bắt buộc"),
   description: z.string().optional(),
   start_time: z.string().min(1, "Thời gian bắt đầu là bắt buộc"),
-  end_time: z.string().min(1, "Thời gian kết thúc là bắt buộc"),
+  end_time: z.string().optional(),
+  location: z.string().optional(),
+  reminder_minutes: z.string().optional(),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   category: z.string().optional(),
 });
@@ -67,7 +67,6 @@ type ScheduleFormValues = z.infer<typeof scheduleFormSchema>;
 
 export const CalendarView: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMonth, setIsLoadingMonth] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
@@ -79,28 +78,24 @@ export const CalendarView: React.FC = () => {
   const [monthSchedules, setMonthSchedules] = useState<Schedule[]>([]);
   
   const { 
-    schedules, 
     selectedDate, 
     setSelectedDate,
-    setSchedules,
-    addSchedule,
-    updateSchedule,
-    removeSchedule,
   } = useAppStore();
 
   const form = useForm<ScheduleFormValues>({
     resolver: zodResolver(scheduleFormSchema),
     defaultValues: {
-      title: "",
+      event: "",
       description: "",
       start_time: "",
       end_time: "",
+      location: "",
+      reminder_minutes: "",
       priority: "medium",
-      category: "",
+      category: "general",
     },
   });
 
-  // Set selectedDate mặc định khi component mount
   useEffect(() => {
     if (!selectedDate) {
       const today = new Date();
@@ -109,15 +104,22 @@ export const CalendarView: React.FC = () => {
     }
   }, [selectedDate, setSelectedDate]);
 
-  // Reset form khi dialog đóng
   useEffect(() => {
     if (!isCreateDialogOpen && !isEditDialogOpen) {
-      form.reset();
+      form.reset({
+        event: "",
+        description: "",
+        start_time: "",
+        end_time: "",
+        location: "",
+        reminder_minutes: "",
+        priority: "medium",
+        category: "general",
+      });
       setEditingSchedule(null);
     }
   }, [isCreateDialogOpen, isEditDialogOpen, form]);
 
-  // Load schedules cho cả tháng khi currentMonth thay đổi
   useEffect(() => {
     const loadMonthData = async () => {
       setIsLoadingMonth(true);
@@ -160,7 +162,6 @@ export const CalendarView: React.FC = () => {
     loadMonthData();
   }, [currentMonth]);
 
-  // Tính toán các ngày trong tháng
   const days = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
@@ -173,7 +174,6 @@ export const CalendarView: React.FC = () => {
     });
   }, [currentMonth]);
 
-  // Lấy schedules cho ngày cụ thể từ monthSchedules
   const getSchedulesForDate = useCallback((date: Date): Schedule[] => {
     if (!monthSchedules || !Array.isArray(monthSchedules)) return [];
     
@@ -261,13 +261,9 @@ export const CalendarView: React.FC = () => {
       const date = parseISO(dateTimeString);
       return format(date, 'HH:mm');
     } catch (error) {
-      try {
-        const date = new Date(dateTimeString);
-        return format(date, 'HH:mm');
-      } catch (e) {
-        console.error('Error formatting time:', e);
+      
         return '--:--';
-      }
+      
     }
   };
 
@@ -289,7 +285,6 @@ export const CalendarView: React.FC = () => {
     }
   };
 
-  // Hàm chuyển đổi date sang MySQL DATETIME format
   const toMySQLDateTime = (date: Date): string => {
     return format(date, 'yyyy-MM-dd HH:mm:ss');
   };
@@ -298,15 +293,12 @@ export const CalendarView: React.FC = () => {
     const dateStr = format(date, 'yyyy-MM-dd');
     setSelectedDate(dateStr);
     
-    // Lấy schedules cho ngày được click
     const daySchedules = getSchedulesForDate(date);
     setSelectedDaySchedules(daySchedules);
     setSelectedDay(date);
     
-    // Mở dialog hiển thị schedules
     setIsDateDialogOpen(true);
     
-    // Nếu ngày được click không nằm trong currentMonth, cập nhật currentMonth
     if (!isSameMonth(date, currentMonth)) {
       setCurrentMonth(date);
     }
@@ -321,22 +313,30 @@ export const CalendarView: React.FC = () => {
         return;
       }
       
-      // Format date to MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
       const selectedDateStr = format(selectedDay, 'yyyy-MM-dd');
       const startDateTime = new Date(`${selectedDateStr}T${data.start_time}`);
-      const endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
       
-      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-        toast.error('Thời gian không hợp lệ');
+      if (isNaN(startDateTime.getTime())) {
+        toast.error('Thời gian bắt đầu không hợp lệ');
         return;
       }
       
-      // Tạo scheduleData theo đúng format MySQL DATETIME
+      let endDateTime = null;
+      if (data.end_time) {
+        endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
+        if (isNaN(endDateTime.getTime())) {
+          toast.error('Thời gian kết thúc không hợp lệ');
+          return;
+        }
+      }
+      
       const scheduleData = {
-        title: data.title,
+        event: data.event,
         description: data.description || '',
-        start_time: toMySQLDateTime(startDateTime), // MySQL format
-        end_time: toMySQLDateTime(endDateTime),     // MySQL format
+        start_time: toMySQLDateTime(startDateTime),
+        end_time: data.end_time ? toMySQLDateTime(endDateTime!) : undefined,
+        location: data.location || '',
+        reminder_minutes: data.reminder_minutes ? parseInt(data.reminder_minutes) : undefined,
         priority: data.priority,
         category: data.category || 'general'
       };
@@ -348,14 +348,15 @@ export const CalendarView: React.FC = () => {
       console.log('Create schedule response:', response);
       
       if (response?.data?.success) {
-        // Nếu response.data có schedule data
         const newScheduleData = response.data.data || response.data.schedule;
         
         const newSchedule: Schedule = {
-          title: data.title,
+          event: data.event,
           description: data.description || '',
-          start_time: startDateTime.toISOString(), // Lưu trong state là ISO string
-          end_time: endDateTime.toISOString(),     // Lưu trong state là ISO string
+          start_time: startDateTime.toISOString(),  
+          end_time: data.end_time ? endDateTime!.toISOString() : undefined,
+          location: data.location || '',
+          reminder_minutes: data.reminder_minutes ? parseInt(data.reminder_minutes) : undefined,
           priority: data.priority,
           category: data.category || 'general',
           id: newScheduleData?.id || Date.now(),
@@ -365,19 +366,24 @@ export const CalendarView: React.FC = () => {
           updated_at: new Date().toISOString(),
         };
         
-        addSchedule(newSchedule);
-        
-        // Cập nhật monthSchedules
+     
         setMonthSchedules(prev => [...prev, newSchedule]);
         
-        // Cập nhật selectedDaySchedules
         setSelectedDaySchedules(prev => [...prev, newSchedule]);
         
         toast.success('Tạo lịch trình thành công');
         setIsCreateDialogOpen(false);
-        form.reset();
+        form.reset({
+          event: "",
+          description: "",
+          start_time: "",
+          end_time: "",
+          location: "",
+          reminder_minutes: "",
+          priority: "medium",
+          category: "general",
+        });
         
-        // Reload month data
         await reloadMonthData();
       } else {
         toast.error(response?.data?.message || 'Không thể tạo lịch trình');
@@ -396,22 +402,30 @@ export const CalendarView: React.FC = () => {
     try {
       setIsCreating(true);
       
-      // Format date to MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
       const selectedDateStr = format(selectedDay, 'yyyy-MM-dd');
       const startDateTime = new Date(`${selectedDateStr}T${data.start_time}`);
-      const endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
       
-      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-        toast.error('Thời gian không hợp lệ');
+      if (isNaN(startDateTime.getTime())) {
+        toast.error('Thời gian bắt đầu không hợp lệ');
         return;
       }
       
-      // Tạo scheduleData theo đúng format MySQL DATETIME
+      let endDateTime = null;
+      if (data.end_time) {
+        endDateTime = new Date(`${selectedDateStr}T${data.end_time}`);
+        if (isNaN(endDateTime.getTime())) {
+          toast.error('Thời gian kết thúc không hợp lệ');
+          return;
+        }
+      }
+      
       const scheduleData = {
-        title: data.title,
+        event: data.event,
         description: data.description || '',
-        start_time: toMySQLDateTime(startDateTime), // MySQL format
-        end_time: toMySQLDateTime(endDateTime),     // MySQL format
+        start_time: toMySQLDateTime(startDateTime),  
+        end_time: data.end_time ? toMySQLDateTime(endDateTime!) : undefined,
+        location: data.location || '',
+        reminder_minutes: data.reminder_minutes ? parseInt(data.reminder_minutes) : undefined,
         priority: data.priority,
         category: data.category || 'general'
       };
@@ -425,23 +439,22 @@ export const CalendarView: React.FC = () => {
       if (response?.data?.success) {
         const updatedSchedule: Schedule = {
           ...editingSchedule,
-          title: data.title,
+          event: data.event,
           description: data.description || '',
-          start_time: startDateTime.toISOString(), // Lưu trong state là ISO string
-          end_time: endDateTime.toISOString(),     // Lưu trong state là ISO string
+          start_time: startDateTime.toISOString(),
+          end_time: data.end_time ? endDateTime!.toISOString() : undefined,
+          location: data.location || '',
+          reminder_minutes: data.reminder_minutes ? parseInt(data.reminder_minutes) : undefined,
           priority: data.priority,
           category: data.category || 'general',
           updated_at: new Date().toISOString(),
         };
         
-        updateSchedule(updatedSchedule);
         
-        // Cập nhật monthSchedules
         setMonthSchedules(prev => 
           prev.map(s => s.id === updatedSchedule.id ? updatedSchedule : s)
         );
         
-        // Cập nhật selectedDaySchedules
         setSelectedDaySchedules(prev => 
           prev.map(s => s.id === updatedSchedule.id ? updatedSchedule : s)
         );
@@ -449,9 +462,17 @@ export const CalendarView: React.FC = () => {
         toast.success('Cập nhật lịch trình thành công');
         setIsEditDialogOpen(false);
         setEditingSchedule(null);
-        form.reset();
+        form.reset({
+          event: "",
+          description: "",
+          start_time: "",
+          end_time: "",
+          location: "",
+          reminder_minutes: "",
+          priority: "medium",
+          category: "general",
+        });
         
-        // Reload month data
         await reloadMonthData();
       } else {
         toast.error(response?.data?.message || 'Không thể cập nhật lịch trình');
@@ -471,17 +492,13 @@ export const CalendarView: React.FC = () => {
       const response = await apiClient.deleteSchedule(scheduleId);
       
       if (response?.data?.success) {
-        removeSchedule(scheduleId);
         
-        // Cập nhật monthSchedules
         setMonthSchedules(prev => prev.filter(s => s.id !== scheduleId));
         
-        // Cập nhật selectedDaySchedules
         setSelectedDaySchedules(prev => prev.filter(s => s.id !== scheduleId));
         
         toast.success('Đã xóa lịch trình');
         
-        // Reload month data
         await reloadMonthData();
       } else {
         toast.error(response?.data?.message || 'Không thể xóa lịch trình');
@@ -495,17 +512,18 @@ export const CalendarView: React.FC = () => {
   const handleEditClick = (schedule: Schedule) => {
     setEditingSchedule(schedule);
     
-    // Extract time from datetime strings
     const startTime = formatTime(schedule.start_time);
-    const endTime = formatTime(schedule.end_time);
+    const endTime = schedule.end_time ? formatTime(schedule.end_time) : '';
     
     form.reset({
-      title: schedule.title,
+      event: schedule.event || schedule.title || '',
       description: schedule.description || '',
       start_time: startTime,
       end_time: endTime,
+      location: schedule.location || '',
+      reminder_minutes: schedule.reminder_minutes?.toString() || '',
       priority: schedule.priority,
-      category: schedule.category || '',
+      category: schedule.category || 'general',
     });
     
     setIsEditDialogOpen(true);
@@ -529,7 +547,6 @@ export const CalendarView: React.FC = () => {
         if (schedules && Array.isArray(schedules)) {
           setMonthSchedules(schedules);
           
-          // Cập nhật selectedDaySchedules nếu có selectedDay
           if (selectedDay) {
             const updatedDaySchedules = schedules.filter(schedule => {
               if (!schedule || !schedule.start_time) return false;
@@ -562,7 +579,6 @@ export const CalendarView: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Calendar Header */}
       <Card className="mb-4">
         <CardHeader className="pb-3 px-4 pt-4">
           <div className="flex items-center justify-between">
@@ -623,7 +639,6 @@ export const CalendarView: React.FC = () => {
             </div>
           )}
           
-          {/* Week Days Header */}
           <div className="grid grid-cols-7 gap-1 mb-2">
             {weekDays.map((day, index) => (
               <div
@@ -635,7 +650,6 @@ export const CalendarView: React.FC = () => {
             ))}
           </div>
 
-          {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1">
             {days.map((day, index) => {
               const daySchedules = getSchedulesForDate(day);
@@ -675,7 +689,6 @@ export const CalendarView: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Schedule Indicators */}
                   <div className="space-y-0.5 flex-grow">
                     {daySchedules.slice(0, 2).map((schedule, idx) => (
                       <div
@@ -685,7 +698,7 @@ export const CalendarView: React.FC = () => {
                           ${getPriorityColor(schedule.priority)}
                           hover:opacity-90 transition-opacity
                         `}
-                        title={`${formatTime(schedule.start_time)} ${schedule.title}`}
+                        title={`${formatTime(schedule.start_time)} ${schedule.event || schedule.title || ''}`}
                       >
                         <div className="font-medium truncate">
                           {formatTime(schedule.start_time)}
@@ -705,7 +718,6 @@ export const CalendarView: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Selected Date Schedules Dialog */}
       <Dialog open={isDateDialogOpen} onOpenChange={setIsDateDialogOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
           <DialogHeader className="flex flex-row items-center justify-between">
@@ -717,7 +729,6 @@ export const CalendarView: React.FC = () => {
                 {selectedDaySchedules.length} lịch trình
               </p>
             </div>
-            
           </DialogHeader>
           
           <ScrollArea className="h-[400px] pr-4">
@@ -748,7 +759,7 @@ export const CalendarView: React.FC = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <h4 className="font-medium text-gray-900 text-base truncate">
-                            {schedule.title}
+                            {schedule.event || schedule.title || ''}
                           </h4>
                           <Badge 
                             variant={getPriorityBadgeVariant(schedule.priority)} 
@@ -775,13 +786,27 @@ export const CalendarView: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
                             <span>
-                              {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                              {formatTime(schedule.start_time)} 
+                              {schedule.end_time && ` - ${formatTime(schedule.end_time)}`}
                             </span>
                           </div>
                           
-                          {schedule.category && (
+                          {schedule.location && (
                             <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4" />
+                              <span>{schedule.location}</span>
+                            </div>
+                          )}
+                          
+                          {schedule.reminder_minutes && (
+                            <div className="flex items-center gap-2">
+                              <Bell className="h-4 w-4" />
+                              <span>Nhắc {schedule.reminder_minutes} phút trước</span>
+                            </div>
+                          )}
+                          
+                          {schedule.category && (
+                            <div className="flex items-center gap-2">
                               <span>{schedule.category}</span>
                             </div>
                           )}
@@ -828,7 +853,6 @@ export const CalendarView: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Create Schedule Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -843,7 +867,7 @@ export const CalendarView: React.FC = () => {
             <form onSubmit={form.handleSubmit(handleCreateSchedule)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="title"
+                name="event"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm">Tiêu đề</FormLabel>
@@ -901,7 +925,7 @@ export const CalendarView: React.FC = () => {
                   name="end_time"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Thời gian kết thúc</FormLabel>
+                      <FormLabel className="text-sm">Thời gian kết thúc (tùy chọn)</FormLabel>
                       <FormControl>
                         <Input 
                           type="time" 
@@ -914,6 +938,43 @@ export const CalendarView: React.FC = () => {
                   )}
                 />
               </div>
+              
+              <FormField
+                control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Địa điểm (tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Nhập địa điểm" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="reminder_minutes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Nhắc nhở trước (phút, tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="Ví dụ: 15, 30, 60" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -944,14 +1005,21 @@ export const CalendarView: React.FC = () => {
                   name="category"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Danh mục (tùy chọn)</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="Công việc, Học tập..." 
-                          className="text-sm h-9"
-                          {...field} 
-                        />
-                      </FormControl>
+                      <FormLabel className="text-sm">Danh mục</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="text-sm h-9">
+                            <SelectValue placeholder="Chọn danh mục" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="general" className="text-sm">Chung</SelectItem>
+                          <SelectItem value="work" className="text-sm">Công việc</SelectItem>
+                          <SelectItem value="personal" className="text-sm">Cá nhân</SelectItem>
+                          <SelectItem value="meeting" className="text-sm">Họp</SelectItem>
+                          <SelectItem value="alarm" className="text-sm">Báo thức</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -985,7 +1053,6 @@ export const CalendarView: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Schedule Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -1000,7 +1067,7 @@ export const CalendarView: React.FC = () => {
             <form onSubmit={form.handleSubmit(handleEditSchedule)} className="space-y-4">
               <FormField
                 control={form.control}
-                name="title"
+                name="event"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm">Tiêu đề</FormLabel>
@@ -1058,7 +1125,7 @@ export const CalendarView: React.FC = () => {
                   name="end_time"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Thời gian kết thúc</FormLabel>
+                      <FormLabel className="text-sm">Thời gian kết thúc (tùy chọn)</FormLabel>
                       <FormControl>
                         <Input 
                           type="time" 
@@ -1071,6 +1138,43 @@ export const CalendarView: React.FC = () => {
                   )}
                 />
               </div>
+              
+              <FormField
+                control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Địa điểm (tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Nhập địa điểm" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="reminder_minutes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">Nhắc nhở trước (phút, tùy chọn)</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        placeholder="Ví dụ: 15, 30, 60" 
+                        className="text-sm h-9"
+                        {...field} 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -1101,14 +1205,21 @@ export const CalendarView: React.FC = () => {
                   name="category"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Danh mục (tùy chọn)</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="Công việc, Học tập..." 
-                          className="text-sm h-9"
-                          {...field} 
-                        />
-                      </FormControl>
+                      <FormLabel className="text-sm">Danh mục</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger className="text-sm h-9">
+                            <SelectValue placeholder="Chọn danh mục" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="general" className="text-sm">Chung</SelectItem>
+                          <SelectItem value="work" className="text-sm">Công việc</SelectItem>
+                          <SelectItem value="personal" className="text-sm">Cá nhân</SelectItem>
+                          <SelectItem value="meeting" className="text-sm">Họp</SelectItem>
+                          <SelectItem value="alarm" className="text-sm">Báo thức</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

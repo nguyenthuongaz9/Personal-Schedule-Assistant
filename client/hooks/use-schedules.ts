@@ -62,7 +62,7 @@ export const useSchedules = () => {
     }
   }, []);
 
-  const createSchedule = useCallback(async (data: ScheduleRequest): Promise<ApiResponse<any>> => {
+  const createSchedule = useCallback(async (data: Schedule): Promise<ApiResponse<any>> => {
     setIsLoading(true);
     setError(null);
 

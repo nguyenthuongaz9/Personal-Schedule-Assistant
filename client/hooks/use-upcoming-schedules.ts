@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/axios-client';
 import { Schedule } from '@/types';
 import toast from 'react-hot-toast';
-import { differenceInMinutes, isAfter } from 'date-fns';
+import { differenceInMinutes, isAfter, addMinutes, subMinutes } from 'date-fns';
 
 export const useUpcomingSchedules = () => {
   const [upcomingSchedules, setUpcomingSchedules] = useState<Schedule[]>([]);
@@ -77,48 +77,81 @@ export const useUpcomingSchedules = () => {
         
         console.log('Raw schedules:', response.data);
         
+        const schedulesWithReminders = response.data.map((schedule: Schedule) => {
+          if (schedule.reminder_minutes && schedule.start_time) {
+            const startTime = new Date(schedule.start_time);
+            const reminderTime = subMinutes(startTime, schedule.reminder_minutes);
+            return {
+              ...schedule,
+              reminder_time: reminderTime.toISOString(),
+              should_remind: isAfter(reminderTime, now) && isAfter(startTime, now)
+            };
+          }
+          return {
+            ...schedule,
+            reminder_time: null,
+            should_remind: false
+          };
+        });
 
-        const upcoming = response.data.filter((schedule: Schedule) => {
+        const upcoming = schedulesWithReminders.filter((schedule: Schedule & { reminder_time?: string | null, should_remind?: boolean }) => {
           if (!schedule.start_time) return false;
+          
           const scheduleTime = new Date(schedule.start_time);
-          return isAfter(scheduleTime, now);
+          const timeUntilStart = differenceInMinutes(scheduleTime, now);
+          
+          if (timeUntilStart > 0 && timeUntilStart <= 24 * 60) {
+            return true;
+          }
+          
+          if (schedule.reminder_minutes && schedule.reminder_time) {
+            const reminderTime = new Date(schedule.reminder_time);
+            const timeUntilReminder = differenceInMinutes(reminderTime, now);
+            return timeUntilReminder > 0 && timeUntilReminder <= 24 * 60;
+          }
+          
+          return false;
         });
 
         console.log('Upcoming schedules after filter:', upcoming);
 
         const sortedSchedules = upcoming.sort((a, b) => {
-          const timeA = new Date(a.start_time).getTime();
-          const timeB = new Date(b.start_time).getTime();
+          const timeA = a.reminder_time ? new Date(a.reminder_time).getTime() : new Date(a.start_time).getTime();
+          const timeB = b.reminder_time ? new Date(b.reminder_time).getTime() : new Date(b.start_time).getTime();
           return timeA - timeB;
         });
 
- 
         const filteredSchedules = filterDismissedSchedules(sortedSchedules);
         setUpcomingSchedules(filteredSchedules);
         setLastChecked(new Date());
         
         console.log('Final filtered schedules:', filteredSchedules);
         
-  
-        const upcomingNearSchedules = filteredSchedules.filter((schedule: Schedule) => {
-          const scheduleTime = new Date(schedule.start_time);
-          const diffMinutes = differenceInMinutes(scheduleTime, now);
+        const immediateReminders = filteredSchedules.filter((schedule: Schedule & { reminder_time?: string | null, should_remind?: boolean }) => {
+          if (!schedule.reminder_time || !schedule.should_remind) return false;
+          
+          const reminderTime = new Date(schedule.reminder_time);
+          const diffMinutes = differenceInMinutes(reminderTime, now);
           return diffMinutes > 0 && diffMinutes <= 15;
         });
         
-        console.log('Upcoming near schedules (within 15 min):', upcomingNearSchedules);
+        console.log('Immediate reminders (within 15 min):', immediateReminders);
         
-        if (upcomingNearSchedules.length > 0 && !showNotification) {
+        if (immediateReminders.length > 0 && !showNotification) {
           setShowNotification(true);
           
-          const nearestSchedule = upcomingNearSchedules[0];
+          const nearestReminder = immediateReminders[0];
           const diffMinutes = differenceInMinutes(
-            new Date(nearestSchedule.start_time), 
+            new Date(nearestReminder.reminder_time!), 
             now
           );
+          
+          const message = nearestReminder.reminder_minutes 
+            ? `Nhắc nhở: ${nearestReminder.event} (bắt đầu sau ${nearestReminder.reminder_minutes} phút)`
+            : `Lịch trình sắp bắt đầu: ${nearestReminder.event}`;
  
           toast.success(
-            `Lịch trình sắp bắt đầu: ${nearestSchedule.title} (còn ${diffMinutes} phút)`,
+            message,
             { 
               duration: 5000,
               icon: '⏰'
@@ -126,11 +159,13 @@ export const useUpcomingSchedules = () => {
           );
         }
       } else {
-        console.error('Invalid response format:', response);
+        console.warn('No valid schedules data in response:', response);
+        setUpcomingSchedules([]);
       }
     } catch (error) {
       console.error('Error fetching upcoming schedules:', error);
       toast.error('Không thể tải lịch trình sắp tới');
+      setUpcomingSchedules([]);
     } finally {
       setIsLoading(false);
     }
@@ -154,11 +189,8 @@ export const useUpcomingSchedules = () => {
 
  
   useEffect(() => {
-
     fetchUpcomingSchedules();
-
     const cleanup = setupCheckInterval();
-    
     return cleanup;
   }, [fetchUpcomingSchedules, setupCheckInterval]);
 

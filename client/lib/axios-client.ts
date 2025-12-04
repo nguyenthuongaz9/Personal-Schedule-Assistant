@@ -179,7 +179,6 @@ class ApiClient {
     }
   }
 
-  // Auth methods
   public async login(credentials: LoginCredentials): Promise<ApiResponse<AuthResponse>> {
     try {
       const response = await this.instance.post('/api/auth/login', credentials);
@@ -187,7 +186,6 @@ class ApiClient {
       const responseData = response.data;
 
       if (responseData.success && responseData.token && responseData.user) {
-        // Lưu token và user
         this.setTokens({
           access_token: responseData.token,
           token_type: 'bearer'
@@ -320,7 +318,6 @@ class ApiClient {
     }
   }
 
-  // Chat API
   public async sendChatMessage(data: ChatRequest): Promise<ApiResponse<AIResponse>> {
     try {
       const response = await this.instance.post('/api/chat', data);
@@ -339,7 +336,6 @@ class ApiClient {
     }
   }
 
-  // Schedule API
   public async getSchedules(date?: string): Promise<ApiResponse<Schedule[]>> {
     try {
       const params = date ? { date } : {};
@@ -381,7 +377,7 @@ class ApiClient {
     }
   }
 
-  public async createSchedule(data: ScheduleRequest): Promise<ApiResponse<any>> {
+  public async createSchedule(data: Schedule): Promise<ApiResponse<any>> {
     try {
       const response = await this.instance.post('/api/schedules', data);
 

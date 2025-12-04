@@ -41,17 +41,14 @@ const Login: React.FC = () => {
       [name]: type === 'checkbox' ? checked : value
     }));
     
-    // Clear error when user starts typing
     if (errors[name as keyof FormErrors]) {
       setErrors(prev => ({ ...prev, [name]: undefined }));
     }
     
-    // Clear server error when user types
     if (serverError) {
       setServerError('');
     }
     
-    // Clear auth context error
     if (authError) {
       clearError();
     }
@@ -88,19 +85,15 @@ const Login: React.FC = () => {
     clearError();
 
     try {
-      // Prepare data for API call
       const loginData: LoginCredentials = {
         email: formData.email,
         password: formData.password,
       };
 
-      // Call login function from AuthContext
       const response = await login(loginData);
 
       if (!response.success) {
-        // Handle API errors
         if (response.error?.errors) {
-          // Handle field-specific errors from API
           const apiErrors = response.error.errors;
           setErrors({
             email: apiErrors.email?.[0],
@@ -111,7 +104,6 @@ const Login: React.FC = () => {
           setServerError(response.error?.detail || response.message || 'Đăng nhập thất bại');
         }
       }
-      // If success, AuthContext will handle redirection automatically
     } catch (error: any) {
       console.error('Login error:', error);
       setServerError(error.message || 'Có lỗi xảy ra khi đăng nhập');
@@ -122,14 +114,11 @@ const Login: React.FC = () => {
 
   const handleSocialLogin = async (provider: string) => {
     try {
-      // Implement social login redirect
       const socialLoginUrl = `${process.env.NEXT_PUBLIC_API_URL}/auth/${provider}/login`;
       const redirectUrl = searchParams.get('redirect') || '/dashboard';
       
-      // Store redirect URL for after social login
       localStorage.setItem('social_login_redirect', redirectUrl);
       
-      // Redirect to social login provider
       window.location.href = `${socialLoginUrl}?redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`;
     } catch (error) {
       console.error('Social login error:', error);
@@ -138,7 +127,6 @@ const Login: React.FC = () => {
   };
 
   const handleForgotPassword = () => {
-    // Simple email validation before redirecting
     if (formData.email && /\S+@\S+\.\S+/.test(formData.email)) {
       router.push(`/forgot-password?email=${encodeURIComponent(formData.email)}`);
     } else {
@@ -167,7 +155,6 @@ const Login: React.FC = () => {
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
-          {/* General error message */}
           {(serverError || errors.general) && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="flex">
@@ -186,7 +173,6 @@ const Login: React.FC = () => {
           )}
 
           <div className="rounded-md shadow-sm -space-y-px">
-            {/* Email Field */}
             <div className="mb-4">
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
                 Email
@@ -214,7 +200,6 @@ const Login: React.FC = () => {
               )}
             </div>
 
-            {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 Mật khẩu
@@ -308,7 +293,6 @@ const Login: React.FC = () => {
           </div>
         </form>
 
-        {/* Additional error from AuthContext */}
         {authError && !serverError && (
           <div className="rounded-md bg-yellow-50 p-4">
             <div className="flex">

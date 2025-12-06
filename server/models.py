@@ -60,7 +60,7 @@ class UserModel:
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Error creating user: {e}", exc_info=True)
+            logger.error(f"Error creating user: {e}", exc_info=True)
             return None
     
     def get_user_by_id(self, user_id: int) -> Optional[User]:

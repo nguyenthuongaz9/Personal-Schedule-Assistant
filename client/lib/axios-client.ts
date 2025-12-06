@@ -126,24 +126,24 @@ class ApiClient {
         });
         return response;
       },
-      // async (error) => {
-      //   console.error('API Error:', {
-      //     url: error.config?.url,
-      //     status: error.response?.status,
-      //     error: error.response?.data
-      //   });
+      async (error) => {
+        console.error('API Error:', {
+          url: error.config?.url,
+          status: error.response?.status,
+          error: error.response?.data
+        });
 
-      //   if (error.response?.status === 401) {
-      //     console.log('Unauthorized, clearing tokens');
-      //     this.clearTokens();
+        if (error.response?.status === 401) {
+          console.log('Unauthorized, clearing tokens');
+          this.clearTokens();
 
-      //     if (typeof window !== 'undefined') {
-      //       window.location.href = '/auth/login';
-      //     }
-      //   }
+          if (typeof window !== 'undefined') {
+            window.location.href = '/auth/login';
+          }
+        }
 
-      //   return Promise.reject(error);
-      // }
+        return Promise.reject(error);
+      }
     );
   }
 
